@@ -1,0 +1,9 @@
+[package]
+name = "fourlokos"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.20"
+image = { version = "0.25", default-features = false, features = ["png"] }
+orbit_core = { version = "0.1.0", path = "../orbit_core" }

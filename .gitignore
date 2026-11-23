@@ -1,0 +1,16 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Game saves
+/saves/
+
+# Secrets / env
+.env
+.env.*
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
