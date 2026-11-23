@@ -14,3 +14,10 @@
 .vscode/
 *.swp
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Borradores de referencias de modelos (la imagen aprobada va en art/<slug>/reference.png)
+art/*/drafts/

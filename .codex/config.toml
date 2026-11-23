@@ -1,0 +1,3 @@
+# Blockbench MCP (plugin de Blockbench de escritorio, ver README). Codex lo lee en proyectos de confianza.
+[mcp_servers.blockbench]
+url = "http://localhost:3000/bb-mcp"
