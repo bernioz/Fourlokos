@@ -54,26 +54,37 @@ impl Boxes {
                 }
                 // Wound to face out (both sides are drawn, but normals and order agree).
                 if sign > 0.0 {
-                    self.index.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+                    self.index
+                        .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
                 } else {
-                    self.index.extend([base, base + 2, base + 1, base, base + 3, base + 2]);
+                    self.index
+                        .extend([base, base + 2, base + 1, base, base + 3, base + 2]);
                 }
             }
         }
     }
 
     fn mesh(self) -> Mesh {
-        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.pos)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normal)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
-            .with_inserted_indices(Indices::U32(self.index))
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.pos)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normal)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
+        .with_inserted_indices(Indices::U32(self.index))
     }
 }
 
 /// Texture coordinates for a ribbon part: across a face, the columns `front` (faces toward or
 /// away from the cabin) or `side`; down it, `v(point)`.
-fn ribbon_uv(lo: Vec3, hi: Vec3, front: (f32, f32), side: (f32, f32), v: impl Fn(Vec3) -> f32) -> impl Fn(Vec3, Vec3) -> [f32; 2] {
+fn ribbon_uv(
+    lo: Vec3,
+    hi: Vec3,
+    front: (f32, f32),
+    side: (f32, f32),
+    v: impl Fn(Vec3) -> f32,
+) -> impl Fn(Vec3, Vec3) -> [f32; 2] {
     move |p, n| {
         let (cols, t) = if n.z != 0.0 {
             (front, (p.x - lo.x) / (hi.x - lo.x).max(1e-6))
@@ -99,7 +110,10 @@ pub fn ribbon_mesh() -> Mesh {
     // A guide rail along each edge (the cabin's clamps ride them).
     for s in [-1.0, 1.0] {
         let (x0, x1) = (w * s, (w + 0.0875) * s);
-        let (lo, hi) = (Vec3::new(x0.min(x1), -0.5, -t * 0.55), Vec3::new(x0.max(x1), 0.5, t + 0.05));
+        let (lo, hi) = (
+            Vec3::new(x0.min(x1), -0.5, -t * 0.55),
+            Vec3::new(x0.max(x1), 0.5, t + 0.05),
+        );
         b.cuboid(lo, hi, ribbon_uv(lo, hi, RAIL, RAIL, v));
     }
     // The rack down its back that the cabin's drive climbs.
@@ -163,8 +177,21 @@ fn noise(x: usize, y: usize) -> f32 {
 pub fn ribbon_texture() -> Image {
     let mut px = vec![[0u8; 4]; TEX * TEX];
     let rgb = |r: u8, g: u8, b: u8| [r, g, b, 255];
-    let shade = |c: [u8; 4], k: f32| [(c[0] as f32 * k).min(255.0) as u8, (c[1] as f32 * k).min(255.0) as u8, (c[2] as f32 * k).min(255.0) as u8, 255];
-    let hazard = |x: usize, y: usize| if (x + y) % 6 < 3 { rgb(222, 170, 38) } else { rgb(34, 34, 36) };
+    let shade = |c: [u8; 4], k: f32| {
+        [
+            (c[0] as f32 * k).min(255.0) as u8,
+            (c[1] as f32 * k).min(255.0) as u8,
+            (c[2] as f32 * k).min(255.0) as u8,
+            255,
+        ]
+    };
+    let hazard = |x: usize, y: usize| {
+        if (x + y) % 6 < 3 {
+            rgb(222, 170, 38)
+        } else {
+            rgb(34, 34, 36)
+        }
+    };
     for y in 0..TEX {
         for x in 0..TEX {
             let n = 0.94 + noise(x, y) * 0.12;
@@ -175,7 +202,13 @@ pub fn ribbon_texture() -> Image {
                     if y < 6 {
                         let edge = y == 0 || y == 5 || x == 0 || x == 9;
                         let rivet = (x == 2 || x == 7) && (y == 2 || y == 3);
-                        if rivet { rgb(70, 72, 78) } else if edge { rgb(96, 100, 108) } else { shade(rgb(132, 136, 144), n) }
+                        if rivet {
+                            rgb(70, 72, 78)
+                        } else if edge {
+                            rgb(96, 100, 108)
+                        } else {
+                            shade(rgb(132, 136, 144), n)
+                        }
                     } else if y < 8 {
                         hazard(x, y)
                     } else if x == 0 || x == 9 {
@@ -189,23 +222,41 @@ pub fn ribbon_texture() -> Image {
                     }
                 }
                 16..20 => {
-                    if y < 6 { shade(rgb(112, 116, 124), n) } else if y < 8 { hazard(x, y) } else { shade(rgb(32, 34, 38), n) }
+                    if y < 6 {
+                        shade(rgb(112, 116, 124), n)
+                    } else if y < 8 {
+                        hazard(x, y)
+                    } else {
+                        shade(rgb(32, 34, 38), n)
+                    }
                 }
                 // The guide rails: polished steel, rounded by shading; a joint every 4 blocks
                 // and a bolt every block.
                 24..32 => {
-                    let tone: f32 = [104.0, 138.0, 166.0, 184.0, 184.0, 166.0, 138.0, 104.0][x - 24];
+                    let tone: f32 =
+                        [104.0, 138.0, 166.0, 184.0, 184.0, 166.0, 138.0, 104.0][x - 24];
                     if y < 2 {
                         rgb(60, 62, 68)
                     } else if y % 16 == 8 && (x == 27 || x == 28) {
                         rgb(84, 86, 92)
                     } else {
-                        shade(rgb(tone as u8, (tone + 4.0) as u8, (tone + 12.0).min(255.0) as u8), 0.97 + noise(x, y) * 0.06)
+                        shade(
+                            rgb(
+                                tone as u8,
+                                (tone + 4.0) as u8,
+                                (tone + 12.0).min(255.0) as u8,
+                            ),
+                            0.97 + noise(x, y) * 0.06,
+                        )
                     }
                 }
                 // The rack: teeth.
                 40..46 => {
-                    if y % 4 < 2 { shade(rgb(100, 104, 112), n) } else { rgb(50, 53, 60) }
+                    if y % 4 < 2 {
+                        shade(rgb(100, 104, 112), n)
+                    } else {
+                        rgb(50, 53, 60)
+                    }
                 }
                 // Steel plate (the anchor housing): panels, rivets, a hazard band at its foot.
                 48..64 => {
@@ -227,7 +278,11 @@ pub fn ribbon_texture() -> Image {
         }
     }
     let mut image = Image::new(
-        Extent3d { width: TEX as u32, height: TEX as u32, depth_or_array_layers: 1 },
+        Extent3d {
+            width: TEX as u32,
+            height: TEX as u32,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         px.into_iter().flatten().collect(),
         TextureFormat::Rgba8UnormSrgb,

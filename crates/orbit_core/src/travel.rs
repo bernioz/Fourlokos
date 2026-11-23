@@ -5,7 +5,7 @@
 //! acceleration to thrust with (`player::Input::thrust`); gravity is not part of it, they
 //! compensate for it themselves.
 
-use crate::player::{gravity_at, Pull, GRAVITY};
+use crate::player::{GRAVITY, Pull, gravity_at};
 use glam::Vec3;
 
 /// Circular orbits the autopilot flies sit this far above the atmosphere.
@@ -46,10 +46,20 @@ pub fn elements(p: Vec3, v: Vec3, gravity_radius: f32) -> Elements {
     let e = (1.0 + 2.0 * energy * h * h / (mu * mu)).max(0.0).sqrt();
     let periapsis = h * h / (mu * (1.0 + e));
     if energy >= 0.0 || e >= 1.0 {
-        return Elements { periapsis, apoapsis: f32::INFINITY, eccentricity: e, period: f32::INFINITY };
+        return Elements {
+            periapsis,
+            apoapsis: f32::INFINITY,
+            eccentricity: e,
+            period: f32::INFINITY,
+        };
     }
     let a = -mu / (2.0 * energy);
-    Elements { periapsis, apoapsis: a * (1.0 + e), eccentricity: e, period: std::f32::consts::TAU * (a * a * a / mu).sqrt() }
+    Elements {
+        periapsis,
+        apoapsis: a * (1.0 + e),
+        eccentricity: e,
+        period: std::f32::consts::TAU * (a * a * a / mu).sqrt(),
+    }
 }
 
 /// True if the body circles the planet for good: above the atmosphere all the way round and
@@ -65,7 +75,9 @@ fn horizontal(radial: Vec3, v: Vec3, fallback: Vec3) -> Vec3 {
     if t.length() > 1.0 {
         return t.normalize();
     }
-    fallback.reject_from(radial).normalize_or(radial.any_orthonormal_vector())
+    fallback
+        .reject_from(radial)
+        .normalize_or(radial.any_orthonormal_vector())
 }
 
 fn clamp_len(a: Vec3, max: f32) -> Vec3 {
@@ -76,7 +88,14 @@ fn clamp_len(a: Vec3, max: f32) -> Vec3 {
 /// out of the atmosphere, turning over to horizontal on the way (a gravity turn), then holding
 /// the orbit's speed. Works the same for launching and for capture on arrival. `fallback` is the
 /// way to head when the body has no horizontal motion yet.
-pub fn circularize(p: Vec3, v: Vec3, target: f32, pull: Pull, fallback: Vec3, max_accel: f32) -> Vec3 {
+pub fn circularize(
+    p: Vec3,
+    v: Vec3,
+    target: f32,
+    pull: Pull,
+    fallback: Vec3,
+    max_accel: f32,
+) -> Vec3 {
     let gravity_radius = pull.gravity_radius;
     let r = p.length().max(1.0);
     let radial = p / r;
@@ -95,7 +114,9 @@ pub fn circularize(p: Vec3, v: Vec3, target: f32, pull: Pull, fallback: Vec3, ma
 
 /// True once `circularize` has done its job.
 pub fn circularized(p: Vec3, v: Vec3, target: f32, pull: Pull) -> bool {
-    (p.length() - target).abs() < 15.0 && in_orbit(p, v, pull) && elements(p, v, pull.gravity_radius).eccentricity < 0.06
+    (p.length() - target).abs() < 15.0
+        && in_orbit(p, v, pull)
+        && elements(p, v, pull.gravity_radius).eccentricity < 0.06
 }
 
 /// Thrust to come down gently over the point below: horizontal speed killed, descent slowing to
@@ -113,7 +134,9 @@ pub fn descend(p: Vec3, v: Vec3, ground: f32, pull: Pull, max_accel: f32) -> Vec
 pub fn cruise(to: Vec3, v: Vec3, arrive: f32, max_speed: f32, max_accel: f32) -> Vec3 {
     let d = to.length();
     let dir = to.normalize_or_zero();
-    let speed = (arrive * arrive + 2.0 * max_accel * 0.5 * d).sqrt().min(max_speed);
+    let speed = (arrive * arrive + 2.0 * max_accel * 0.5 * d)
+        .sqrt()
+        .min(max_speed);
     clamp_len((dir * speed - v) * 3.0, max_accel)
 }
 
@@ -159,7 +182,10 @@ mod tests {
     const DT: f32 = 1.0 / 60.0;
 
     fn planet() -> Planet {
-        let spec = PlanetSpec { center: glam::DVec3::new(500.0, 0.0, 0.0), ..PlanetSpec::new(7, "t".into(), 80.0, Biome::Barren) };
+        let spec = PlanetSpec {
+            center: glam::DVec3::new(500.0, 0.0, 0.0),
+            ..PlanetSpec::new(7, "t".into(), 80.0, Biome::Barren)
+        };
         Planet::generate(spec)
     }
 
@@ -171,7 +197,13 @@ mod tests {
     fn circular_orbit_stays_circular() {
         let gr = 200.0;
         let r = orbit_radius(gr);
-        let well = Well { id: 1, center: glam::DVec3::ZERO, radius: 100.0, pull: Pull::planet(gr), vel: Vec3::ZERO };
+        let well = Well {
+            id: 1,
+            center: glam::DVec3::ZERO,
+            radius: 100.0,
+            pull: Pull::planet(gr),
+            vel: Vec3::ZERO,
+        };
         let mut b = Body::new(glam::DVec3::new(r as f64, 0.0, 0.0), Vec3::X);
         b.vel = Vec3::new(0.0, 0.0, circular_speed(r, Pull::planet(gr)));
         let period = elements(Vec3::new(r, 0.0, 0.0), b.vel, gr).period;
@@ -202,7 +234,14 @@ mod tests {
                 break;
             }
             let thrust = circularize(pos, vel, target, Pull::planet(gr), Vec3::X, PILOT_ACCEL);
-            b.step(Input { thrust: Some(thrust), ..Default::default() }, &locs, DT);
+            b.step(
+                Input {
+                    thrust: Some(thrust),
+                    ..Default::default()
+                },
+                &locs,
+                DT,
+            );
         }
         assert!(done, "never reached orbit");
         assert_eq!(b.orbiting, Some(p.spec.id));
@@ -211,7 +250,11 @@ mod tests {
             b.step(Input::default(), &locs, DT);
         }
         let (pos, vel) = rel(&b, &p);
-        assert!(in_orbit(pos, vel, Pull::planet(gr)), "decayed: r = {}", pos.length());
+        assert!(
+            in_orbit(pos, vel, Pull::planet(gr)),
+            "decayed: r = {}",
+            pos.length()
+        );
     }
 
     #[test]
@@ -225,9 +268,22 @@ mod tests {
         let mut landed = None;
         for i in 0..60 * 120 {
             let (pos, vel) = rel(&b, &p);
-            let thrust = descend(pos, vel, p.spec.radius + p.spec.max_height(), Pull::planet(gr), PILOT_ACCEL);
+            let thrust = descend(
+                pos,
+                vel,
+                p.spec.radius + p.spec.max_height(),
+                Pull::planet(gr),
+                PILOT_ACCEL,
+            );
             let before = b.vel.length();
-            b.step(Input { thrust: Some(thrust), ..Default::default() }, &locs, DT);
+            b.step(
+                Input {
+                    thrust: Some(thrust),
+                    ..Default::default()
+                },
+                &locs,
+                DT,
+            );
             if b.on_ground {
                 landed = Some((i, before));
                 break;
@@ -259,7 +315,14 @@ mod tests {
     fn falling_in_from_orbit_has_no_jolt() {
         // Gravity is continuous at the atmosphere's edge.
         let gr = 200.0;
-        assert!((gravity_at(gr - 0.01, Pull::planet(gr)) - gravity_at(gr + 0.01, Pull::planet(gr))).abs() < 0.01);
-        assert_eq!(gravity_at(Pull::planet(gr).soi + 1.0, Pull::planet(gr)), 0.0);
+        assert!(
+            (gravity_at(gr - 0.01, Pull::planet(gr)) - gravity_at(gr + 0.01, Pull::planet(gr)))
+                .abs()
+                < 0.01
+        );
+        assert_eq!(
+            gravity_at(Pull::planet(gr).soi + 1.0, Pull::planet(gr)),
+            0.0
+        );
     }
 }

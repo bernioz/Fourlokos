@@ -22,7 +22,10 @@ impl Plugin for AtmospherePlugin {
         embedded_asset!(app, "atmosphere.wesl");
         app.add_plugins(MaterialPlugin::<SkyMaterial>::default())
             .add_systems(Startup, spawn_dome)
-            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate));
+            .add_systems(
+                PostUpdate,
+                follow_camera.before(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -116,7 +119,14 @@ fn palette(spec: &PlanetSpec) -> Palette {
     let h = orbit_core::rng::mix(spec.id ^ 0x5C1E);
     let t = ((h & 0xFF) as f32 / 255.0 - 0.5) * 0.25;
     let turn = |c: Vec3| Vec3::new(c.x * (1.0 + t), c.y, c.z * (1.0 - t)).min(Vec3::splat(0.98));
-    Palette { zenith: turn(p.zenith), horizon: turn(p.horizon), dusk_zenith: turn(p.dusk_zenith), dusk_sun: p.dusk_sun, dusk_gold: p.dusk_gold, arrebol: turn(p.arrebol) }
+    Palette {
+        zenith: turn(p.zenith),
+        horizon: turn(p.horizon),
+        dusk_zenith: turn(p.dusk_zenith),
+        dusk_sun: p.dusk_sun,
+        dusk_gold: p.dusk_gold,
+        arrebol: turn(p.arrebol),
+    }
 }
 
 impl Material for SkyMaterial {
@@ -132,11 +142,28 @@ impl Material for SkyMaterial {
 #[derive(Component)]
 struct Dome(Handle<SkyMaterial>);
 
-fn spawn_dome(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<SkyMaterial>>) {
+fn spawn_dome(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<SkyMaterial>>,
+) {
     // Seen from inside: flip the sphere's triangles.
-    let mesh = Sphere::new(DOME).mesh().ico(4).unwrap().with_inverted_winding().unwrap();
-    let mat = mats.add(SkyMaterial { atmo: AtmosphereUniform::default() });
-    commands.spawn((Dome(mat.clone()), Mesh3d(meshes.add(mesh)), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden));
+    let mesh = Sphere::new(DOME)
+        .mesh()
+        .ico(4)
+        .unwrap()
+        .with_inverted_winding()
+        .unwrap();
+    let mat = mats.add(SkyMaterial {
+        atmo: AtmosphereUniform::default(),
+    });
+    commands.spawn((
+        Dome(mat.clone()),
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(mat),
+        Transform::default(),
+        Visibility::Hidden,
+    ));
 }
 
 /// Centers the dome on the camera and points its sky at the nearest planet's sun.
@@ -147,7 +174,9 @@ fn follow_camera(
     mut dome: Query<(&Dome, &mut Transform, &mut Visibility)>,
     mut mats: ResMut<Assets<SkyMaterial>>,
 ) {
-    let (Ok(cam), Ok((dome, mut t, mut vis))) = (cam.single(), dome.single_mut()) else { return };
+    let (Ok(cam), Ok((dome, mut t, mut vis))) = (cam.single(), dome.single_mut()) else {
+        return;
+    };
     t.translation = cam.translation; // render space
     let eye = origin.eye; // world, for the planets
     let near = space.planets.values().min_by(|a, b| {
@@ -164,16 +193,29 @@ fn follow_camera(
     let alt = eye.distance(p.spec.center) as f32 - p.spec.radius;
     let depth = 1.0 - ((alt - top / 3.0) / (top * 2.0 / 3.0)).clamp(0.0, 1.0);
     let depth = depth * depth * (3.0 - 2.0 * depth);
-    *vis = if depth > 0.0 { Visibility::Visible } else { Visibility::Hidden };
+    *vis = if depth > 0.0 {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
     if let Some(mut m) = mats.get_mut(&dome.0) {
         let up = (eye - p.spec.center).as_vec3().normalize_or(Vec3::Y);
         // In an eclipse the sky darkens with the sun.
-        let seen = space.eclipsers(p.spec.id).iter().map(|&(c, r)| sun_seen(eye, p.spec.star(), p.star_radius as f64, c, r as f64)).product::<f64>() as f32;
+        let seen = space
+            .eclipsers(p.spec.id)
+            .iter()
+            .map(|&(c, r)| sun_seen(eye, p.spec.star(), p.star_radius as f64, c, r as f64))
+            .product::<f64>() as f32;
         let c = palette(&p.spec);
         m.atmo = AtmosphereUniform {
-            sun_dir: (p.spec.star() - p.spec.center).as_vec3().normalize_or(Vec3::Y).extend(0.0),
+            sun_dir: (p.spec.star() - p.spec.center)
+                .as_vec3()
+                .normalize_or(Vec3::Y)
+                .extend(0.0),
             up: up.extend(depth),
-            sun_color: Vec3::ONE.lerp(Vec3::from_array(p.star_color), 0.35).extend(seen),
+            sun_color: Vec3::ONE
+                .lerp(Vec3::from_array(p.star_color), 0.35)
+                .extend(seen),
             zenith: c.zenith.extend(0.0),
             horizon: c.horizon.extend(0.0),
             dusk_zenith: c.dusk_zenith.extend(0.0),

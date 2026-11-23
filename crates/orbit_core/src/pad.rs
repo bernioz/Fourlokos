@@ -37,12 +37,24 @@ impl Shape {
 
     pub fn message(self) -> String {
         match self {
-            Shape::Square { side } => format!("Landing pad ready: {side}x{side}. Rockets can come down on it"),
-            Shape::Unfinished { w, l, n } if w == l && n < (w * w) as usize => {
-                format!("Landing pad {w}x{l}: {} block{} missing to fill the square", w * w - n as i32, if w * w - n as i32 == 1 { "" } else { "s" })
+            Shape::Square { side } => {
+                format!("Landing pad ready: {side}x{side}. Rockets can come down on it")
             }
-            Shape::Unfinished { w, l, .. } if w.max(l) < MIN_SIDE => format!("Landing pad {w}x{l}: make it a full square, at least {MIN_SIDE}x{MIN_SIDE}"),
-            Shape::Unfinished { w, l, .. } => format!("Landing pad {w}x{l}: make it a full square ({0}x{0} or {1}x{1})", w.min(l).max(MIN_SIDE), w.max(l)),
+            Shape::Unfinished { w, l, n } if w == l && n < (w * w) as usize => {
+                format!(
+                    "Landing pad {w}x{l}: {} block{} missing to fill the square",
+                    w * w - n as i32,
+                    if w * w - n as i32 == 1 { "" } else { "s" }
+                )
+            }
+            Shape::Unfinished { w, l, .. } if w.max(l) < MIN_SIDE => format!(
+                "Landing pad {w}x{l}: make it a full square, at least {MIN_SIDE}x{MIN_SIDE}"
+            ),
+            Shape::Unfinished { w, l, .. } => format!(
+                "Landing pad {w}x{l}: make it a full square ({0}x{0} or {1}x{1})",
+                w.min(l).max(MIN_SIDE),
+                w.max(l)
+            ),
             Shape::TooBig => format!("Landing pad too big: at most {MAX_SIDE}x{MAX_SIDE}"),
         }
     }
@@ -80,9 +92,23 @@ pub fn shape_of(cells: &[(i32, i32)]) -> (Shape, Option<Square>) {
     }
     // Cells are distinct, so as many as the box holds fill it.
     if w == l && w >= MIN_SIDE && cells.len() == (w * l) as usize {
-        return (Shape::Square { side: w }, Some(Square { x0: lo.0, z0: lo.1, side: w }));
+        return (
+            Shape::Square { side: w },
+            Some(Square {
+                x0: lo.0,
+                z0: lo.1,
+                side: w,
+            }),
+        );
     }
-    (Shape::Unfinished { w, l, n: cells.len() }, None)
+    (
+        Shape::Unfinished {
+            w,
+            l,
+            n: cells.len(),
+        },
+        None,
+    )
 }
 
 // --- On a planet -------------------------------------------------------------------------
@@ -111,8 +137,13 @@ fn planet_pad(planet: &Planet, start: CellId) -> Vec<CellId> {
 pub fn on_planet(planet: &Planet, start: CellId) -> (Vec<CellId>, Shape, Option<Square>) {
     let cells = planet_pad(planet, start);
     let (face, i, j, k) = planet.grid.coords(start);
-    let lay = crate::rocket::Lay::snapped(planet, face, i as i64, j as i64, k as i64, glam::Vec3::Z);
-    let local: Vec<(i32, i32)> = cells.iter().map(|&c| lay.local_of(planet, c)).map(|p| (p.x, p.z)).collect();
+    let lay =
+        crate::rocket::Lay::snapped(planet, face, i as i64, j as i64, k as i64, glam::Vec3::Z);
+    let local: Vec<(i32, i32)> = cells
+        .iter()
+        .map(|&c| lay.local_of(planet, c))
+        .map(|p| (p.x, p.z))
+        .collect();
     let (shape, square) = shape_of(&local);
     (cells, shape, square)
 }
@@ -123,7 +154,11 @@ pub fn on_planet(planet: &Planet, start: CellId) -> (Vec<CellId>, Shape, Option<
 pub fn refresh_planet(planet: &mut Planet, changed: CellId) -> (Vec<ChunkKey>, Option<Shape>) {
     let g = &planet.grid;
     let mut starts = vec![changed];
-    starts.extend([Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus].into_iter().filter_map(|s| g.neighbor(changed, s)));
+    starts.extend(
+        [Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus]
+            .into_iter()
+            .filter_map(|s| g.neighbor(changed, s)),
+    );
     let (mut dirty, mut done, mut said) = (Vec::new(), HashSet::new(), None);
     for s in starts {
         if !block::is_pad(planet.get(s)) || done.contains(&s) {
@@ -133,7 +168,11 @@ pub fn refresh_planet(planet: &mut Planet, changed: CellId) -> (Vec<ChunkKey>, O
         if s == changed || said.is_none() {
             said = Some(shape);
         }
-        let want = if shape.ready() { block::PAD_READY } else { block::PAD };
+        let want = if shape.ready() {
+            block::PAD_READY
+        } else {
+            block::PAD
+        };
         for &c in &cells {
             done.insert(c);
             if planet.get(c) != want {
@@ -190,7 +229,11 @@ pub fn refresh_station(s: &mut Station, changed: IVec3) -> (bool, Option<Shape>)
         if p == changed || said.is_none() {
             said = Some(shape);
         }
-        let want: Block = if shape.ready() { block::PAD_READY } else { block::PAD };
+        let want: Block = if shape.ready() {
+            block::PAD_READY
+        } else {
+            block::PAD
+        };
         for c in cells {
             done.insert(c);
             if s.get(c) != want {
@@ -224,12 +267,21 @@ mod tests {
     use super::*;
 
     fn square(x0: i32, z0: i32, w: i32, l: i32) -> Vec<(i32, i32)> {
-        (x0..x0 + w).flat_map(|x| (z0..z0 + l).map(move |z| (x, z))).collect()
+        (x0..x0 + w)
+            .flat_map(|x| (z0..z0 + l).map(move |z| (x, z)))
+            .collect()
     }
 
     #[test]
     fn only_full_squares_are_ready() {
-        assert_eq!(shape_of(&square(2, -3, 4, 4)).1, Some(Square { x0: 2, z0: -3, side: 4 }));
+        assert_eq!(
+            shape_of(&square(2, -3, 4, 4)).1,
+            Some(Square {
+                x0: 2,
+                z0: -3,
+                side: 4
+            })
+        );
         assert_eq!(shape_of(&square(0, 0, 5, 5)).0, Shape::Square { side: 5 });
         assert!(!shape_of(&square(0, 0, 5, 4)).0.ready());
         assert!(!shape_of(&square(0, 0, 2, 2)).0.ready());
@@ -261,7 +313,17 @@ mod tests {
         assert!(changed);
         assert_eq!(said, Some(Shape::Square { side: 4 }));
         assert!((0..4).all(|x| (0..4).all(|z| s.get(at(x, z)) == block::PAD_READY)));
-        assert_eq!(station_squares(&s), vec![(Square { x0: 0, z0: 0, side: 4 }, 1)]);
+        assert_eq!(
+            station_squares(&s),
+            vec![(
+                Square {
+                    x0: 0,
+                    z0: 0,
+                    side: 4
+                },
+                1
+            )]
+        );
         // One more beside it: not a square.
         s.set(at(4, 0), block::PAD);
         refresh_station(&mut s, at(4, 0));

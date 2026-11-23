@@ -30,7 +30,10 @@ pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (start_generation, finish_generation, attach_skybox).chain());
+        app.add_systems(
+            Update,
+            (start_generation, finish_generation, attach_skybox).chain(),
+        );
     }
 }
 
@@ -47,7 +50,11 @@ struct SkyTask(Task<Image>);
 #[derive(Resource)]
 struct SkyCubemap(Handle<Image>);
 
-fn start_generation(mut commands: Commands, seed: Option<Res<SkySeed>>, tasks: Query<Entity, With<SkyTask>>) {
+fn start_generation(
+    mut commands: Commands,
+    seed: Option<Res<SkySeed>>,
+    tasks: Query<Entity, With<SkyTask>>,
+) {
     let Some(seed) = seed else { return };
     if !seed.is_changed() {
         return;
@@ -59,7 +66,10 @@ fn start_generation(mut commands: Commands, seed: Option<Res<SkySeed>>, tasks: Q
     let task = AsyncComputeTaskPool::get().spawn(async move {
         let t = std::time::Instant::now();
         let image = build_image(seed, FACE_SIZE);
-        info!("sky: seed {seed} generated in {:.0} ms", t.elapsed().as_secs_f32() * 1000.0);
+        info!(
+            "sky: seed {seed} generated in {:.0} ms",
+            t.elapsed().as_secs_f32() * 1000.0
+        );
         image
     });
     commands.spawn(SkyTask(task));
@@ -72,7 +82,9 @@ fn finish_generation(
     mut cameras: Query<&mut Skybox, With<SkyCamera>>,
 ) {
     for (e, mut task) in &mut tasks {
-        let Some(image) = check_ready(&mut task.0) else { continue };
+        let Some(image) = check_ready(&mut task.0) else {
+            continue;
+        };
         commands.entity(e).despawn();
         let handle = images.add(image);
         for mut skybox in &mut cameras {
@@ -107,7 +119,11 @@ pub fn build_image(seed: u64, size: usize) -> Image {
         }
     }
     let mut image = Image::new(
-        Extent3d { width: size as u32, height: size as u32, depth_or_array_layers: 6 },
+        Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 6,
+        },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba16Float,
@@ -160,13 +176,18 @@ impl SkyParams {
         let band_normal = rng.unit();
         // A point on the band's great circle.
         let r = rng.unit();
-        let core_dir = (r - band_normal * r.dot(band_normal)).normalize_or(band_normal.any_orthonormal_vector());
+        let core_dir = (r - band_normal * r.dot(band_normal))
+            .normalize_or(band_normal.any_orthonormal_vector());
         let band_tint = hsv(0.05 + rng.f32() * 0.12, 0.15 + rng.f32() * 0.2, 1.0);
         let base_hue = rng.f32();
         let count = 2 + rng.below(2) as usize;
         let nebulae = (0..count)
             .map(|i| Nebula {
-                color: hsv((base_hue + i as f32 * (0.18 + rng.f32() * 0.25)).fract(), 0.6 + rng.f32() * 0.3, 1.0),
+                color: hsv(
+                    (base_hue + i as f32 * (0.18 + rng.f32() * 0.25)).fract(),
+                    0.6 + rng.f32() * 0.3,
+                    1.0,
+                ),
                 offset: rng.unit() * (20.0 + rng.f32() * 80.0),
                 scale: 0.9 + rng.f32() * 1.2,
                 strength: 0.025 + rng.f32() * 0.035,
@@ -220,7 +241,11 @@ impl SkyParams {
                 continue;
             }
             let p = d * n.scale * 2.2 + n.offset;
-            let warp = Vec3::new(fbm(ns ^ 1, p * 0.7, 3), fbm(ns ^ 2, p * 0.7, 3), fbm(ns ^ 3, p * 0.7, 3));
+            let warp = Vec3::new(
+                fbm(ns ^ 1, p * 0.7, 3),
+                fbm(ns ^ 2, p * 0.7, 3),
+                fbm(ns ^ 3, p * 0.7, 3),
+            );
             let v = fbm(ns, p + warp * 2.2, 5);
             let cloud = smoothstep(0.38, 0.82, v);
             let core = smoothstep(0.6, 0.9, v);
@@ -290,7 +315,13 @@ fn splat_stars(p: &SkyParams, seed: u64, size: usize, out: &mut [Vec3]) {
         placed += 1;
         let u = rng.f32();
         // Mostly faint; a rare few are bright.
-        let mag = 0.015 + 0.35 * u.powi(6) + if rng.f32() < 0.003 { 1.5 + 3.0 * rng.f32() } else { 0.0 };
+        let mag = 0.015
+            + 0.35 * u.powi(6)
+            + if rng.f32() < 0.003 {
+                1.5 + 3.0 * rng.f32()
+            } else {
+                0.0
+            };
         let color = STAR_COLORS[rng.below(STAR_COLORS.len() as u32) as usize];
         let sigma = 0.45 + 0.35 * mag.min(2.0).sqrt();
         splat(out, size, d, color * mag, sigma, mag > 1.0);
@@ -427,8 +458,16 @@ mod tests {
 
     #[test]
     fn deterministic_per_seed() {
-        let dirs = [Vec3::X, Vec3::new(0.3, -0.5, 0.8).normalize(), Vec3::new(-0.7, 0.1, -0.2).normalize()];
-        let (a, b, c) = (SkyParams::from_seed(42), SkyParams::from_seed(42), SkyParams::from_seed(43));
+        let dirs = [
+            Vec3::X,
+            Vec3::new(0.3, -0.5, 0.8).normalize(),
+            Vec3::new(-0.7, 0.1, -0.2).normalize(),
+        ];
+        let (a, b, c) = (
+            SkyParams::from_seed(42),
+            SkyParams::from_seed(42),
+            SkyParams::from_seed(43),
+        );
         for d in dirs {
             assert_eq!(a.background(d), b.background(d));
         }

@@ -1,5 +1,16 @@
 # Fourlokos
 
+## Granja y completo italiano
+
+En las praderas aparecen **gallinas**: son pasivas, ponen **huevos** con el tiempo y dejan
+**pollo crudo** y, a veces, plumas al morir. Las semillas se consiguen rompiendo pasto alto.
+Planta tomate, girasol, trigo y brotes de palto; sus etapas avanzan con los *random ticks* del
+mundo y las cosechas maduras se recolectan con clic derecho para que vuelvan a crecer.
+
+En el horno puedes convertir semillas de girasol en **aceite de girasol** y pollo crudo en
+**pollo cocido**. La mesa permite fabricar **mayonesa** (huevo + aceite), **pan** (tres trigos)
+y el **completo italiano** (pan, vienesa, palta, tomate y mayonesa), que restaura mucha vida.
+
 Repositorio del equipo Fourlokos de la hackathon Build Games with Codex Santiago.
 
 Juego de planetas de bloques (voxel) en Rust + Bevy: un sol con 3 planetas generados por semilla,
@@ -26,6 +37,30 @@ crates/client/       # juego en Bevy (menú de inicio, mundo, cielo, UI)
 schematics/          # estructuras de ejemplo
 ```
 
+## Criaturas, NPCs y diálogo
+
+El estado y la IA viven en `orbit_core` (`mob.rs`, `boss.rs`, `dialogue.rs`; sin motor, con tests y todo
+el azar por `rng`); el cliente (`mobs.rs`, `dialogue.rs`, `story.rs`) los dibuja y los conecta al juego.
+
+- **Slime**: pasivo (salta por la pradera, evita el agua) hasta que le pegas; entonces te persigue y daña
+  por contacto (2 HP, con cooldown). 8 HP; tu golpe es el de la espada en mano (4/5/6/7, puño y pico 1).
+  Suelta 0-2 **Slimeball** (1-3 si lo mató una espada). Solo aparecen en survival, en planetas Meadow, máx. 6.
+- **Slime King**: jefe siempre hostil (200 HP, barra arriba con su nombre a menos de 40 bloques). Ataques
+  avisados (se agacha y brilla): aplastamiento (6), embestida y, bajo el 50 % de vida (fase 2), más rápido,
+  onda más ancha e invocación de slimes pequeños. Se invoca con un **Slime Crown Core** (mesa de crafteo:
+  8 Slimeball en anillo alrededor de 1 Iron Ingot): clic derecho en el suelo; no hay dos a la vez.
+  Suelta 6-10 Slimeball.
+- **Bodoque** (planeta natal, cerca del spawn) y **Tulio** (en *Tulio's Moon*, la luna del planeta natal,
+  que siempre existe): invulnerables, miran al jugador si está cerca y si no pasean despacio. Clic derecho
+  abre el diálogo: teclas 1-3 o clic para responder, Enter muestra todo el texto, Esc cierra. Cada uno da un
+  regalo único por mundo (Stone Pickaxe / 3 Slimeball).
+- `/summon <slime|slime_king|bodoque|tulio>` para depurar. Demos: `ORBIT_DEMO=mobs|npc|moon|boss`.
+- Se guarda `npcs.bin` junto al mundo (regalos dados, jefe derrotado, dónde está cada NPC); los slimes y el
+  jefe no persisten.
+- Los modelos de Bodoque, Tulio y la corona grande del King son **placeholders** de cubos
+  (`crates/client/src/npc_models.rs`, marcados con `placeholder: replace with the real model`).
+  El slime usa `assets/models/slime.gltf` (animaciones `idle` y `bounce`).
+
 ## Modelos 3D con la skill `voxel-model`
 
 La skill genera una imagen de referencia con la API de imágenes de OpenAI, la aprueban entre ustedes y luego
@@ -51,6 +86,12 @@ versiona con git. Los borradores van a `art/<slug>/drafts/` y no se suben.
    - Windows: *Inicio > "Editar las variables de entorno para tu cuenta" > Nueva* (nombre `OPENAI_API_KEY`).
      Evita escribirla en la consola, donde queda en el historial. Abrir una terminal nueva después.
    - Linux/macOS: `export OPENAI_API_KEY=...` en `~/.bashrc` / `~/.zshrc` (en fish: `set -Ux OPENAI_API_KEY (wl-paste)`).
+   - **Codex**: por defecto filtra las variables con `KEY` en el nombre y bloquea la red de su sandbox, así que
+     el doctor puede decir "falta la clave" aunque tu terminal la tenga. En `~/.codex/config.toml` agrega
+     `[shell_environment_policy]` con `ignore_default_excludes = true` y `[sandbox_workspace_write]` con
+     `network_access = true`, y reinicia Codex.
+   - **Linux con Blockbench en Flatpak**: el servidor MCP sigue en `localhost:3000`, pero Blockbench solo puede
+     escribir en carpetas XDG (Descargas, Documentos); la skill exporta ahí y luego mueve los archivos a `art/<slug>/`.
 5. Comprobar todo (no gasta crédito) desde la raíz del repo:
    ```sh
    python .agents/skills/voxel-model/scripts/voxel_doctor.py

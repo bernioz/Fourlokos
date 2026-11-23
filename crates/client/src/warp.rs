@@ -13,6 +13,7 @@ use bevy::shader::ShaderRef;
 use orbit_core::rng::Rng;
 
 /// The camera's normal field of view, degrees.
+#[allow(dead_code)]
 pub const FOV: f32 = 75.0;
 /// Stars that streak, and how far from the camera they are drawn.
 const STREAKS: usize = 420;
@@ -25,7 +26,12 @@ impl Plugin for WarpPlugin {
         embedded_asset!(app, "warp.wesl");
         app.add_plugins(MaterialPlugin::<WarpMaterial>::default())
             .add_systems(Startup, spawn)
-            .add_systems(PostUpdate, camera_fx.after(crate::world::apply_origin).before(TransformSystems::Propagate));
+            .add_systems(
+                PostUpdate,
+                camera_fx
+                    .after(crate::world::apply_origin)
+                    .before(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -62,15 +68,38 @@ struct Flash;
 #[derive(Resource)]
 struct Streaks(Vec<(Vec3, f32)>);
 
-fn spawn(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<WarpMaterial>>) {
+fn spawn(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<WarpMaterial>>,
+) {
     // Seen from inside; small, so nothing in the world stands between it and the camera. The
     // shader only uses view directions, so its shape does not show.
-    let mesh = Sphere::new(1.0).mesh().uv(64, 32).with_inverted_winding().unwrap();
-    let mat = mats.add(WarpMaterial { warp: WarpUniform::default() });
-    commands.spawn((Tunnel(mat.clone()), Mesh3d(meshes.add(mesh)), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden));
+    let mesh = Sphere::new(1.0)
+        .mesh()
+        .uv(64, 32)
+        .with_inverted_winding()
+        .unwrap();
+    let mat = mats.add(WarpMaterial {
+        warp: WarpUniform::default(),
+    });
+    commands.spawn((
+        Tunnel(mat.clone()),
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(mat),
+        Transform::default(),
+        Visibility::Hidden,
+    ));
     commands.spawn((
         Flash,
-        Node { position_type: PositionType::Absolute, left: px(0), top: px(0), width: percent(100), height: percent(100), ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            top: px(0),
+            width: percent(100),
+            height: percent(100),
+            ..default()
+        },
         BackgroundColor(Color::NONE),
         GlobalZIndex(50),
         Pickable::IGNORE,
@@ -102,16 +131,25 @@ struct Look {
     streak: f32,
 }
 
-fn look(fx: &WarpFx) -> Look {
+fn look(fx: &WarpFx, base: f32) -> Look {
     let p = fx.progress.clamp(0.0, 1.0);
     match fx.phase {
-        None | Some(WarpPhase::Depart) => Look { fov: FOV, ..default() },
+        None | Some(WarpPhase::Depart) => Look {
+            fov: base,
+            ..default()
+        },
         Some(WarpPhase::Spool) => {
             let e = p * p;
-            Look { fov: FOV - 12.0 * e, shake: 0.035 * e, streak: 260.0 * e.powf(1.4), flash: ease((p - 0.88) / 0.12), ..default() }
+            Look {
+                fov: base - 12.0 * e,
+                shake: 0.035 * e,
+                streak: 260.0 * e.powf(1.4),
+                flash: ease((p - 0.88) / 0.12),
+                ..default()
+            }
         }
         Some(WarpPhase::Tunnel) => Look {
-            fov: 118.0 - 14.0 * ease(p * 3.0),
+            fov: base + 43.0 - 14.0 * ease(p * 3.0),
             shake: 0.025 + 0.02 * (1.0 - p),
             tunnel: ease(p / 0.08) * (1.0 - ease((p - 0.9) / 0.1)),
             rush: 1.0 - 0.6 * ease(p * 2.0),
@@ -120,7 +158,13 @@ fn look(fx: &WarpFx) -> Look {
         },
         Some(WarpPhase::Exit) => {
             let q = 1.0 - p;
-            Look { fov: FOV + (104.0 - FOV) * q * q * q, shake: 0.02 * q, streak: 300.0 * q * q, flash: 1.0 - ease(p / 0.3), ..default() }
+            Look {
+                fov: base + 29.0 * q * q * q,
+                shake: 0.02 * q,
+                streak: 300.0 * q * q,
+                flash: 1.0 - ease(p / 0.3),
+                ..default()
+            }
         }
     }
 }
@@ -130,14 +174,18 @@ fn camera_fx(
     fx: Res<WarpFx>,
     time: Res<Time>,
     streaks: Res<Streaks>,
-    mut cam: Single<(&mut Transform, &mut Projection), (With<crate::sky::SkyCamera>, Without<Tunnel>)>,
+    mut cam: Single<
+        (&mut Transform, &mut Projection),
+        (With<crate::sky::SkyCamera>, Without<Tunnel>),
+    >,
     mut tunnel: Single<(&Tunnel, &mut Transform, &mut Visibility), Without<Camera3d>>,
     mut flash: Single<&mut BackgroundColor, With<Flash>>,
     mut mats: ResMut<Assets<WarpMaterial>>,
     mut gizmos: Gizmos,
     rockets: Res<crate::rocket::Rockets>,
+    settings: Res<crate::settings::Settings>,
 ) {
-    let l = look(&fx);
+    let l = look(&fx, settings.fov_deg);
     let (ref mut t, ref mut proj) = *cam;
     if let Projection::Perspective(p) = &mut **proj {
         let fov = l.fov.to_radians();
@@ -149,23 +197,42 @@ fn camera_fx(
     let s = time.elapsed_secs();
     if l.shake > 0.0 {
         // A rumble: a few incommensurate wobbles.
-        let w = Vec3::new((s * 37.0).sin() + (s * 61.0).sin() * 0.5, (s * 43.0).cos() + (s * 71.0).sin() * 0.5, 0.0) * l.shake;
-        t.rotation *= Quat::from_euler(EulerRot::XYZ, w.x * 0.15, w.y * 0.15, (s * 29.0).sin() * l.shake * 0.08);
+        let w = Vec3::new(
+            (s * 37.0).sin() + (s * 61.0).sin() * 0.5,
+            (s * 43.0).cos() + (s * 71.0).sin() * 0.5,
+            0.0,
+        ) * l.shake;
+        t.rotation *= Quat::from_euler(
+            EulerRot::XYZ,
+            w.x * 0.15,
+            w.y * 0.15,
+            (s * 29.0).sin() * l.shake * 0.08,
+        );
         let offset = t.rotation * Vec3::new(w.x, w.y, 0.0) * 0.3;
         t.translation += offset;
     }
 
     let frame = Quat::from_rotation_arc(Vec3::Z, axis);
     let (tun, ref mut tt, ref mut vis) = *tunnel;
-    let want = if l.tunnel > 0.001 { Visibility::Visible } else { Visibility::Hidden };
+    let want = if l.tunnel > 0.001 {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
     if **vis != want {
         **vis = want;
     }
     if l.tunnel > 0.001 {
         // Round the camera and, from the chase camera, round the whole rocket too, so the
         // rocket flies inside the tunnel instead of behind its wall.
-        let r = if rockets.is_piloting() && !rockets.cockpit { (rockets.reach * 1.25).max(3.0) } else { 3.0 };
-        **tt = Transform::from_translation(t.translation).with_rotation(frame).with_scale(Vec3::new(r, r, r * 20.0));
+        let r = if rockets.is_piloting() && !rockets.cockpit {
+            (rockets.reach * 1.25).max(3.0)
+        } else {
+            3.0
+        };
+        **tt = Transform::from_translation(t.translation)
+            .with_rotation(frame)
+            .with_scale(Vec3::new(r, r, r * 20.0));
         if let Some(mut m) = mats.get_mut(&tun.0) {
             m.warp = WarpUniform {
                 axis: axis.extend(s % 1000.0),

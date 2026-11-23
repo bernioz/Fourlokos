@@ -8,24 +8,31 @@
 //! detailed one (about two blocks a column) when the planet is near and a coarse one when it is
 //! far. A planet whose voxels stay loaded (edited) but that is far away draws only its far mesh.
 
-use bevy::asset::RenderAssetUsages;
-use bevy::camera::primitives::Aabb;
-use bevy::mesh::{Indices, PrimitiveTopology};
-use bevy::platform::collections::HashMap;
-use bevy::math::DVec3;
-use bevy::prelude::*;
-use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 use crate::lighting::{LiquidMaterial, VoxelMaterial};
 use crate::textures::Atlas;
-use orbit_core::mesh::{chunk_meshes, far_mesh, shell_meshes, MeshData, Meshes};
+use bevy::asset::RenderAssetUsages;
+use bevy::camera::primitives::Aabb;
+use bevy::math::DVec3;
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::platform::collections::HashMap;
+use bevy::prelude::*;
+use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, futures_lite::future};
+use orbit_core::mesh::{MeshData, Meshes, chunk_meshes, far_mesh, shell_meshes};
 use orbit_core::planet::{ChunkKey, Customization, Planet, PlanetSpec};
-use orbit_core::universe::{StarSystem, Universe};
 use orbit_core::player::{Located, Well};
+use orbit_core::universe::{StarSystem, Universe};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 /// Physics' view of the planets `Space::voxels` returned.
 pub fn located<'a>(voxels: &'a [(RwLockReadGuard<'_, Planet>, DVec3, Quat)]) -> Vec<Located<'a>> {
-    voxels.iter().map(|(p, center, rotation)| Located { planet: p, center: *center, rotation: *rotation }).collect()
+    voxels
+        .iter()
+        .map(|(p, center, rotation)| Located {
+            planet: p,
+            center: *center,
+            rotation: *rotation,
+        })
+        .collect()
 }
 
 /// Sectors around the player whose stars are drawn.
@@ -101,7 +108,20 @@ impl Plugin for WorldPlugin {
             .add_systems(PostUpdate, apply_origin.before(TransformSystems::Propagate))
             .add_systems(Startup, setup_assets)
             .add_systems(Update, move_planets.in_set(MovePlanets).run_if(live))
-            .add_systems(Update, (stream_systems, stream_voxels, finish_voxels, flow_liquids, stream_chunks, aim_sunlight).chain().after(MovePlanets).run_if(live));
+            .add_systems(
+                Update,
+                (
+                    stream_systems,
+                    stream_voxels,
+                    finish_voxels,
+                    flow_liquids,
+                    stream_chunks,
+                    aim_sunlight,
+                )
+                    .chain()
+                    .after(MovePlanets)
+                    .run_if(live),
+            );
     }
 }
 
@@ -129,12 +149,23 @@ impl Space {
     /// What can pass between a planet (or moon) and its star: a planet's moons; a moon's planet
     /// and its other moon. Centers (world) and radii, up to two.
     pub fn eclipsers(&self, id: u64) -> Vec<(DVec3, f32)> {
-        let Some(p) = self.planets.get(&id) else { return vec![] };
+        let Some(p) = self.planets.get(&id) else {
+            return vec![];
+        };
         let host = p.spec.host.map(|h| h.id);
-        let mut v: Vec<(DVec3, f32)> = host.and_then(|h| self.planets.get(&h)).map(|h| (h.spec.center, h.spec.radius)).into_iter().collect();
+        let mut v: Vec<(DVec3, f32)> = host
+            .and_then(|h| self.planets.get(&h))
+            .map(|h| (h.spec.center, h.spec.radius))
+            .into_iter()
+            .collect();
         // Moons of this planet, or the other moons of this moon's planet.
         let family = host.unwrap_or(id);
-        v.extend(self.planets.values().filter(|m| m.spec.id != id && m.spec.host.is_some_and(|h| h.id == family)).map(|m| (m.spec.center, m.spec.radius)));
+        v.extend(
+            self.planets
+                .values()
+                .filter(|m| m.spec.id != id && m.spec.host.is_some_and(|h| h.id == family))
+                .map(|m| (m.spec.center, m.spec.radius)),
+        );
         v.truncate(2);
         v
     }
@@ -143,20 +174,53 @@ impl Space {
         Self::with(seed, orbit_core::universe::WorldGen::default())
     }
 
+    /// Despawns everything this space put in the scene (stars, planets and their chunks), for when
+    /// it is about to be replaced by another world's: otherwise the old planets stay behind.
+    pub fn despawn_all(&mut self, commands: &mut Commands) {
+        for (_, slot) in self.systems.drain() {
+            for e in slot.entities {
+                commands.entity(e).despawn();
+            }
+        }
+        for (_, p) in self.planets.drain() {
+            commands.entity(p.root).despawn();
+        }
+    }
+
     pub fn with(seed: u64, make: orbit_core::universe::WorldGen) -> Self {
-        Self { universe: Universe::with(seed, make), planets: HashMap::default(), systems: HashMap::default(), custom: HashMap::default() }
+        Self {
+            universe: Universe::with(seed, make),
+            planets: HashMap::default(),
+            systems: HashMap::default(),
+            custom: HashMap::default(),
+        }
     }
 
     /// Loaded voxel planets with where they are now, for physics (see `located`).
     pub fn voxels(&self) -> Vec<(RwLockReadGuard<'_, Planet>, DVec3, Quat)> {
-        self.planets.values().filter_map(|p| Some((p.voxel.as_ref()?.read().unwrap(), p.spec.center, p.spec.rotation))).collect()
+        self.planets
+            .values()
+            .filter_map(|p| {
+                Some((
+                    p.voxel.as_ref()?.read().unwrap(),
+                    p.spec.center,
+                    p.spec.rotation,
+                ))
+            })
+            .collect()
     }
 
     /// Every streamed planet's gravity well (orbits need no voxels).
     pub fn wells(&self) -> Vec<Well> {
         self.planets
             .values()
-            .map(|p| Well { id: p.spec.id, center: p.spec.center, radius: p.spec.radius, pull: p.spec.pull(), vel: p.spec.velocity })
+            .map(|p| Well {
+                id: p.spec.id,
+                center: p.spec.center,
+                radius: p.spec.radius,
+                pull: p.spec.pull(),
+                vel: p.spec.velocity,
+            })
             .collect()
     }
 
@@ -181,7 +245,9 @@ impl Space {
 
     /// True if the point is inside a planet's gravity whose voxels are not ready yet.
     pub fn waiting_at(&self, pos: DVec3) -> bool {
-        self.planets.values().any(|p| p.voxel.is_none() && pos.distance(p.spec.center) < p.spec.gravity_radius() as f64)
+        self.planets.values().any(|p| {
+            p.voxel.is_none() && pos.distance(p.spec.center) < p.spec.gravity_radius() as f64
+        })
     }
 }
 
@@ -189,6 +255,12 @@ impl PlanetSlot {
     /// The material its chunks are drawn with (for things drawn among them: items lying about).
     pub fn material(&self) -> Handle<VoxelMaterial> {
         self.mat.clone()
+    }
+
+    /// Chunks currently represented by near voxel meshes. Decorative model props should only
+    /// follow these cells; the voxel mesh remains the fallback outside this set.
+    pub(crate) fn loaded_chunks(&self) -> impl Iterator<Item = ChunkKey> + '_ {
+        self.chunks.keys().copied()
     }
 }
 
@@ -260,27 +332,53 @@ pub struct Assets3d {
 #[derive(Component)]
 pub struct Sun;
 
-fn setup_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>) {
+fn setup_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+) {
     let sphere = meshes.add(Sphere::new(1.0).mesh().ico(5).unwrap());
     let c = orbit_core::block::color(orbit_core::block::CORE);
-    let core_mat = mats.add(StandardMaterial { base_color: rgb(c), perceptual_roughness: 1.0, ..default() });
+    let core_mat = mats.add(StandardMaterial {
+        base_color: rgb(c),
+        perceptual_roughness: 1.0,
+        ..default()
+    });
     commands.insert_resource(Assets3d { core_mat, sphere });
-    commands.spawn((Sun, DirectionalLight { illuminance: 9000.0, ..default() }, Transform::default()));
-    commands.insert_resource(GlobalAmbientLight { color: Color::srgb(0.6, 0.65, 0.9), brightness: 60.0, ..default() }); // planets light themselves (lighting.rs)
+    commands.spawn((
+        Sun,
+        DirectionalLight {
+            illuminance: 9000.0,
+            ..default()
+        },
+        Transform::default(),
+    ));
+    commands.insert_resource(GlobalAmbientLight {
+        color: Color::srgb(0.6, 0.65, 0.9),
+        brightness: 60.0,
+        ..default()
+    }); // planets light themselves (lighting.rs)
 }
 
 /// Planet meshes live on the GPU only (they run to hundreds of MB), with bounds computed here: the
 /// main world never holds the mesh to compute them from.
 pub(crate) fn gpu_mesh(meshes: &mut Assets<Mesh>, m: MeshData) -> (Handle<Mesh>, Aabb) {
     let aabb = Aabb::enclosing(m.positions.iter().map(|&p| Vec3::from(p))).unwrap_or_default();
-    let colors: Vec<[f32; 4]> = m.colors.into_iter().map(|c| LinearRgba::from(Color::srgba(c[0], c[1], c[2], c[3])).to_f32_array()).collect();
-    let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, m.uvs)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, m.lights)
-        .with_inserted_indices(Indices::U32(m.indices));
+    let colors: Vec<[f32; 4]> = m
+        .colors
+        .into_iter()
+        .map(|c| LinearRgba::from(Color::srgba(c[0], c[1], c[2], c[3])).to_f32_array())
+        .collect();
+    let mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, m.uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, m.lights)
+    .with_inserted_indices(Indices::U32(m.indices));
     (meshes.add(mesh), aabb)
 }
 
@@ -306,7 +404,12 @@ fn move_planets(
     mut offset: Local<Option<f64>>,
 ) {
     // Debug: ORBIT_TIME=<seconds> starts the universe clock later (another time of day).
-    let start = *offset.get_or_insert_with(|| std::env::var("ORBIT_TIME").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0));
+    let start = *offset.get_or_insert_with(|| {
+        std::env::var("ORBIT_TIME")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0)
+    });
     let t = start + shift.0 + time.elapsed_secs_f64();
     clock.0 = t;
     for slot in space.planets.values_mut() {
@@ -329,7 +432,11 @@ pub(crate) fn apply_origin(
         for h in [&slot.mat, &slot.far_mat] {
             if let Some(mut m) = mats.get_mut(h) {
                 m.place(center, origin.render(slot.spec.star()));
-                let bodies: Vec<(Vec3, f32)> = space.eclipsers(slot.spec.id).into_iter().map(|(c, r)| (origin.render(c), r)).collect();
+                let bodies: Vec<(Vec3, f32)> = space
+                    .eclipsers(slot.spec.id)
+                    .into_iter()
+                    .map(|(c, r)| (origin.render(c), r))
+                    .collect();
                 m.eclipses(origin.render(slot.spec.star()), slot.star_radius, &bodies);
                 m.submerge(*submerged);
             }
@@ -369,7 +476,9 @@ fn stream_systems(
     // Drop systems out of range, and any whose level of detail no longer fits (rebuilt below).
     space.systems.retain(|s, slot| {
         let in_range = (*s - here).abs().max_element() <= STAR_RANGE;
-        let wants_detail = slot.star.is_some_and(|(c, _)| c.distance(eye) < DETAIL_DIST as f64);
+        let wants_detail = slot
+            .star
+            .is_some_and(|(c, _)| c.distance(eye) < DETAIL_DIST as f64);
         if in_range && slot.detailed == wants_detail {
             return true;
         }
@@ -401,9 +510,24 @@ fn stream_systems(
                         }
                         orbit_core::planet::refit_moons(&mut sys.planets, clock.0);
                         let detailed = sys.center.distance(eye) < DETAIL_DIST as f64;
-                        spawn_system(&mut commands, &mut space.planets, &assets, &atlas, &mut meshes, &mut mats, (&mut voxel_mats, &mut water_mats), sys, detailed)
+                        spawn_system(
+                            &mut commands,
+                            &mut space.planets,
+                            &assets,
+                            &atlas,
+                            &mut meshes,
+                            &mut mats,
+                            (&mut voxel_mats, &mut water_mats),
+                            sys,
+                            detailed,
+                        )
                     }
-                    None => SystemSlot { star: None, entities: vec![], planets: vec![], detailed: false },
+                    None => SystemSlot {
+                        star: None,
+                        entities: vec![],
+                        planets: vec![],
+                        detailed: false,
+                    },
                 };
                 space.systems.insert(s, slot);
             }
@@ -424,11 +548,25 @@ fn spawn_system(
 ) -> SystemSlot {
     // HDR color well above 1.0 so bloom makes it glow like a sun.
     let glow = LinearRgba::from(rgb(sys.star_color)) * 12.0;
-    let star_mat = mats.add(StandardMaterial { base_color: Color::LinearRgba(glow), unlit: true, ..default() });
+    let star_mat = mats.add(StandardMaterial {
+        base_color: Color::LinearRgba(glow),
+        unlit: true,
+        ..default()
+    });
     let star = commands
-        .spawn((Mesh3d(assets.sphere.clone()), MeshMaterial3d(star_mat), WorldPos(sys.center), Transform::from_scale(Vec3::splat(sys.star_radius))))
+        .spawn((
+            Mesh3d(assets.sphere.clone()),
+            MeshMaterial3d(star_mat),
+            WorldPos(sys.center),
+            Transform::from_scale(Vec3::splat(sys.star_radius)),
+        ))
         .id();
-    let mut slot = SystemSlot { star: Some((sys.center, sys.star_color)), entities: vec![star], planets: vec![], detailed };
+    let mut slot = SystemSlot {
+        star: Some((sys.center, sys.star_color)),
+        entities: vec![star],
+        planets: vec![],
+        detailed,
+    };
     if !detailed {
         return slot;
     }
@@ -437,7 +575,12 @@ fn spawn_system(
         if planets.contains_key(&spec.id) {
             continue; // kept alive because it was edited
         }
-        let root = commands.spawn((Transform::from_rotation(spec.rotation), Visibility::default())).id();
+        let root = commands
+            .spawn((
+                Transform::from_rotation(spec.rotation),
+                Visibility::default(),
+            ))
+            .id();
         // Solid core under the voxel layers: seals the planet (nothing behind it shows through
         // pixel-wide gaps) and is the floor when digging all the way down.
         let core = commands
@@ -454,7 +597,15 @@ fn spawn_system(
         let water_mat = water_mats.add(LiquidMaterial::new(&m));
         let far_mat = voxel_mats.add(m);
         let coarse = gpu_mesh(meshes, far_mesh(&spec, COARSE_RES));
-        let far = commands.spawn((Mesh3d(coarse.0.clone()), coarse.1, MeshMaterial3d(far_mat.clone()), Transform::default(), ChildOf(root))).id();
+        let far = commands
+            .spawn((
+                Mesh3d(coarse.0.clone()),
+                coarse.1,
+                MeshMaterial3d(far_mat.clone()),
+                Transform::default(),
+                ChildOf(root),
+            ))
+            .id();
         planets.insert(
             spec.id,
             PlanetSlot {
@@ -503,15 +654,24 @@ fn unload(commands: &mut Commands, slot: &mut PlanetSlot) {
 
 /// Gives a planet a new shape (after customizing it): new far mesh and core, and its voxels are
 /// generated again (edits are lost).
-pub fn reshape(commands: &mut Commands, slot: &mut PlanetSlot, meshes: &mut Assets<Mesh>, spec: PlanetSpec) {
+pub fn reshape(
+    commands: &mut Commands,
+    slot: &mut PlanetSlot,
+    meshes: &mut Assets<Mesh>,
+    spec: PlanetSpec,
+) {
     unload(commands, slot);
     slot.edited = false;
     slot.coarse = gpu_mesh(meshes, far_mesh(&spec, COARSE_RES));
     slot.detail = None;
     slot.detail_task = None;
     slot.showing_detail = false;
-    commands.entity(slot.far).insert((Mesh3d(slot.coarse.0.clone()), slot.coarse.1));
-    commands.entity(slot.core).insert(Transform::from_scale(Vec3::splat(core_radius(&spec))));
+    commands
+        .entity(slot.far)
+        .insert((Mesh3d(slot.coarse.0.clone()), slot.coarse.1));
+    commands
+        .entity(slot.core)
+        .insert(Transform::from_scale(Vec3::splat(core_radius(&spec))));
     slot.spec = spec;
 }
 
@@ -523,7 +683,10 @@ fn stream_voxels(mut commands: Commands, mut space: ResMut<Space>, origin: Res<O
         if d < VOXEL_LOAD && slot.voxel.is_none() && slot.task.is_none() {
             let spec = slot.spec.clone();
             slot.task = Some(pool.spawn(async move { Planet::generate(spec) }));
-        } else if d > VOXEL_LOAD * 2.0 && (slot.voxel.is_some() || slot.task.is_some()) && !slot.edited {
+        } else if d > VOXEL_LOAD * 2.0
+            && (slot.voxel.is_some() || slot.task.is_some())
+            && !slot.edited
+        {
             unload(&mut commands, slot);
         }
     }
@@ -531,8 +694,12 @@ fn stream_voxels(mut commands: Commands, mut space: ResMut<Space>, origin: Res<O
 
 fn finish_voxels(mut space: ResMut<Space>) {
     for slot in space.planets.values_mut() {
-        let Some(task) = slot.task.as_mut() else { continue };
-        let Some(planet) = block_on(future::poll_once(task)) else { continue };
+        let Some(task) = slot.task.as_mut() else {
+            continue;
+        };
+        let Some(planet) = block_on(future::poll_once(task)) else {
+            continue;
+        };
         slot.task = None;
         // Where it is now lives in `slot.spec`; the voxels' own spec frame is not kept up to date.
         let g = &planet.grid;
@@ -541,7 +708,10 @@ fn finish_voxels(mut space: ResMut<Space>) {
         slot.chunk_centers = planet
             .all_chunks()
             .map(|k| {
-                let (i, j) = ((k.ci as usize * size + half).min(g.n - 1), (k.cj as usize * size + half).min(g.n - 1));
+                let (i, j) = (
+                    (k.ci as usize * size + half).min(g.n - 1),
+                    (k.cj as usize * size + half).min(g.n - 1),
+                );
                 (k, g.center(g.index(k.face as usize, i, j, surface)))
             })
             .collect();
@@ -563,7 +733,11 @@ fn stream_chunks(
     let pool = AsyncComputeTaskPool::get();
     for slot in space.planets.values_mut() {
         // Finished jobs.
-        let done: Vec<ChunkKey> = slot.jobs.iter_mut().filter_map(|(k, (_, t))| t.is_finished().then_some(*k)).collect();
+        let done: Vec<ChunkKey> = slot
+            .jobs
+            .iter_mut()
+            .filter_map(|(k, (_, t))| t.is_finished().then_some(*k))
+            .collect();
         for k in done {
             let (lod, task) = slot.jobs.remove(&k).unwrap();
             let data = block_on(task);
@@ -589,12 +763,17 @@ fn stream_chunks(
         let detail = altitude < DETAIL_DROP && slot.detail.is_some();
         if detail != slot.showing_detail {
             slot.showing_detail = detail;
-            let (h, aabb) = if detail { slot.detail.clone().unwrap() } else { slot.coarse.clone() };
+            let (h, aabb) = if detail {
+                slot.detail.clone().unwrap()
+            } else {
+                slot.coarse.clone()
+            };
             commands.entity(slot.far).insert((Mesh3d(h), aabb));
         }
 
         // Chunks, only while the camera is near enough to the planet to see them.
-        let near = (eye.distance(slot.spec.center) as f32) < slot.spec.gravity_radius() + CHUNK_RANGE;
+        let near =
+            (eye.distance(slot.spec.center) as f32) < slot.spec.gravity_radius() + CHUNK_RANGE;
         let mut hole: f32 = 0.0;
         match slot.voxel.clone() {
             Some(v) if near => {
@@ -604,7 +783,12 @@ fn stream_chunks(
                 let alt = (local.length() - r).max(0.0);
                 let horizon = (2.0 * r * alt + alt * alt).sqrt() + slot.spec.max_height() + 48.0;
                 let view = horizon.clamp(CHUNK_VIEW, SHELL_VIEW_MAX);
-                let behind: Vec<ChunkKey> = slot.chunk_centers.iter().filter(|(_, c)| c.distance(local) > view + CHUNK_SLACK).map(|(k, _)| *k).collect();
+                let behind: Vec<ChunkKey> = slot
+                    .chunk_centers
+                    .iter()
+                    .filter(|(_, c)| c.distance(local) > view + CHUNK_SLACK)
+                    .map(|(k, _)| *k)
+                    .collect();
                 for k in behind {
                     if let Some((_, e)) = slot.chunks.remove(&k) {
                         commands.entity(e).despawn();
@@ -620,13 +804,20 @@ fn stream_chunks(
                     if d >= view {
                         continue;
                     }
-                    let want = if d < CHUNK_VIEW { Lod::Full } else { Lod::Shell };
+                    let want = if d < CHUNK_VIEW {
+                        Lod::Full
+                    } else {
+                        Lod::Shell
+                    };
                     let have = slot.chunks.get(k).map(|c| c.0);
                     if have.is_none() {
                         gap = gap.min(d);
                     }
                     let needed = have.is_none() || (want == Lod::Full && have == Some(Lod::Shell));
-                    let queued = slot.jobs.get(k).is_some_and(|j| j.0 == want || j.0 == Lod::Full);
+                    let queued = slot
+                        .jobs
+                        .get(k)
+                        .is_some_and(|j| j.0 == want || j.0 == Lod::Full);
                     if needed && !queued {
                         missing.push((d, *k, want));
                     }
@@ -638,14 +829,20 @@ fn stream_chunks(
                     slot.jobs.insert(k, (lod, mesh_job(&v, k, lod)));
                 }
             }
-            _ if !slot.chunks.is_empty() || !slot.jobs.is_empty() => drop_chunks(&mut commands, slot),
+            _ if !slot.chunks.is_empty() || !slot.jobs.is_empty() => {
+                drop_chunks(&mut commands, slot)
+            }
             _ => {}
         }
 
         slot.hole = hole;
         if let Ok(mut t) = far.get_mut(slot.far) {
             // Under the chunks, out of sight, while there are any.
-            let s = if slot.chunks.is_empty() { 1.0 } else { (slot.spec.radius - FAR_SINK) / slot.spec.radius };
+            let s = if slot.chunks.is_empty() {
+                1.0
+            } else {
+                (slot.spec.radius - FAR_SINK) / slot.spec.radius
+            };
             if t.scale.x != s {
                 t.scale = Vec3::splat(s);
             }
@@ -653,12 +850,23 @@ fn stream_chunks(
     }
 }
 
-fn spawn_chunk(commands: &mut Commands, slot: &mut PlanetSlot, meshes: &mut Assets<Mesh>, key: ChunkKey, lod: Lod, data: Meshes) {
+fn spawn_chunk(
+    commands: &mut Commands,
+    slot: &mut PlanetSlot,
+    meshes: &mut Assets<Mesh>,
+    key: ChunkKey,
+    lod: Lod,
+    data: Meshes,
+) {
     if let Some((_, old)) = slot.chunks.remove(&key) {
         commands.entity(old).despawn();
     }
     // An empty chunk still counts as loaded (an entity with no mesh), so it is not asked for again.
-    let mut e = commands.spawn((Transform::default(), Visibility::default(), ChildOf(slot.root)));
+    let mut e = commands.spawn((
+        Transform::default(),
+        Visibility::default(),
+        ChildOf(slot.root),
+    ));
     if !data.solid.is_empty() {
         let (mesh, aabb) = gpu_mesh(meshes, data.solid);
         e.insert((Mesh3d(mesh), aabb, MeshMaterial3d(slot.mat.clone())));
@@ -667,7 +875,14 @@ fn spawn_chunk(commands: &mut Commands, slot: &mut PlanetSlot, meshes: &mut Asse
     // Its water, a child drawn see-through.
     if !data.water.is_empty() {
         let (mesh, aabb) = gpu_mesh(meshes, data.water);
-        commands.spawn((Mesh3d(mesh), aabb, MeshMaterial3d(slot.water_mat.clone()), Transform::default(), Visibility::default(), ChildOf(id)));
+        commands.spawn((
+            Mesh3d(mesh),
+            aabb,
+            MeshMaterial3d(slot.water_mat.clone()),
+            Transform::default(),
+            Visibility::default(),
+            ChildOf(id),
+        ));
     }
     slot.chunks.insert(key, (lod, id));
 }
@@ -676,14 +891,18 @@ fn spawn_chunk(commands: &mut Commands, slot: &mut PlanetSlot, meshes: &mut Asse
 /// they change again.
 fn flow_liquids(mut space: ResMut<Space>, time: Res<Time>) {
     for slot in space.planets.values_mut() {
-        let Some(v) = slot.voxel.clone() else { continue };
+        let Some(v) = slot.voxel.clone() else {
+            continue;
+        };
         slot.flow_time = (slot.flow_time + time.delta_secs()).min(orbit_core::liquid::TICK * 4.0);
         if v.read().unwrap().flowing() == 0 {
             slot.flow_time = 0.0;
             continue;
         }
         // Not while meshing jobs read it: the main thread would wait on them. Next frame, then.
-        let Ok(mut planet) = v.try_write() else { continue };
+        let Ok(mut planet) = v.try_write() else {
+            continue;
+        };
         let mut dirty: Vec<ChunkKey> = Vec::new();
         while slot.flow_time >= orbit_core::liquid::TICK {
             slot.flow_time -= orbit_core::liquid::TICK;
@@ -707,20 +926,36 @@ pub fn remesh(slot: &mut PlanetSlot, keys: &[ChunkKey]) {
     let Some(v) = slot.voxel.clone() else { return };
     for &k in keys {
         // At the detail it has (or is being built at); replacing a job drops the stale one.
-        if let Some(lod) = slot.jobs.get(&k).map(|j| j.0).or(slot.chunks.get(&k).map(|c| c.0)) {
+        if let Some(lod) = slot
+            .jobs
+            .get(&k)
+            .map(|j| j.0)
+            .or(slot.chunks.get(&k).map(|c| c.0))
+        {
             slot.jobs.insert(k, (lod, mesh_job(&v, k, lod)));
         }
     }
 }
 
 /// Points the sunlight from the nearest star toward the player.
-fn aim_sunlight(space: Res<Space>, origin: Res<Origin>, mut sun: Query<(&mut Transform, &mut DirectionalLight), With<Sun>>) {
-    let Ok((mut t, mut light)) = sun.single_mut() else { return };
+fn aim_sunlight(
+    space: Res<Space>,
+    origin: Res<Origin>,
+    mut sun: Query<(&mut Transform, &mut DirectionalLight), With<Sun>>,
+) {
+    let Ok((mut t, mut light)) = sun.single_mut() else {
+        return;
+    };
     let eye = origin.eye;
-    let near = space.systems.values().filter_map(|s| s.star).min_by(|a, b| a.0.distance(eye).total_cmp(&b.0.distance(eye)));
+    let near = space
+        .systems
+        .values()
+        .filter_map(|s| s.star)
+        .min_by(|a, b| a.0.distance(eye).total_cmp(&b.0.distance(eye)));
     if let Some((center, color)) = near {
         let dir = (eye - center).as_vec3().normalize_or(Vec3::Z);
-        *t = Transform::from_translation(origin.render(center)).looking_to(dir, dir.any_orthonormal_vector());
+        *t = Transform::from_translation(origin.render(center))
+            .looking_to(dir, dir.any_orthonormal_vector());
         light.color = Color::WHITE.mix(&rgb(color), 0.35);
     }
 }

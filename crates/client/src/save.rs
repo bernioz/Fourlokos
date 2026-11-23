@@ -39,7 +39,16 @@ pub struct SavePlugin;
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<StartWorld>()
-            .add_systems(PreUpdate, (start_world, (load, load_player).chain().run_if(resource_changed::<SaveDir>)).chain())
+            .add_systems(
+                PreUpdate,
+                (
+                    start_world,
+                    (load, load_player)
+                        .chain()
+                        .run_if(resource_changed::<SaveDir>),
+                )
+                    .chain(),
+            )
             .add_systems(Update, autosave)
             .add_systems(Last, save_on_exit);
     }
@@ -67,7 +76,9 @@ pub struct SavedWorld {
 }
 
 pub fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 pub fn write_info(dir: &Path, info: &WorldInfo) -> std::io::Result<()> {
@@ -82,7 +93,8 @@ pub struct StartWorld(pub SavedWorld);
 /// The universe clock a save was left at.
 fn saved_shift(dir: &Path) -> Option<f64> {
     let data = std::fs::read(dir.join("world.bin")).ok()?;
-    (data.len() == 16 && &data[..8] == b"OBWORLD1").then(|| f64::from_le_bytes(data[8..16].try_into().unwrap()))
+    (data.len() == 16 && &data[..8] == b"OBWORLD1")
+        .then(|| f64::from_le_bytes(data[8..16].try_into().unwrap()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -94,15 +106,20 @@ fn start_world(
     mut shift: ResMut<TimeShift>,
     time: Res<Time>,
     mut player: Single<&mut crate::player::Player>,
+    role: Res<crate::netplay::NetRole>,
 ) {
-    let Some(StartWorld(world)) = starts.read().last().cloned() else { return };
+    let Some(StartWorld(world)) = starts.read().last().cloned() else {
+        return;
+    };
     let mut info = world.info.clone();
     info.played = now();
-    if std::env::var("ORBIT_DEMO").is_err() {
+    let ephemeral = matches!(&*role, crate::netplay::NetRole::Client(_));
+    if std::env::var("ORBIT_DEMO").is_err() && !ephemeral {
         if let Err(e) = write_info(&world.dir, &info) {
             warn!("save: could not write {}: {e}", world.dir.display());
         }
     }
+    space.despawn_all(&mut commands);
     *space = crate::world::Space::with(info.seed, info.make.clone());
     commands.insert_resource(crate::sky::SkySeed(info.seed));
     // The planets have gone on round their stars since the clock started: the spawn point is
@@ -114,13 +131,31 @@ fn start_world(
     home.advance(t);
     let at = home.to_world(local);
     player.body = orbit_core::player::Body::new(at, (at - home.center).as_vec3());
-    player.inv = orbit_core::inventory::Inventory { mode: info.mode, ..default() };
-    info!("save: starting world {:?} (seed {}) from {}", info.name, info.seed, world.dir.display());
-    commands.insert_resource(SaveDir(Some(world.dir)));
+    player.inv = orbit_core::inventory::Inventory {
+        mode: info.mode,
+        ..default()
+    };
+    // Survival starts empty-handed: the creative hotbar's blocks are only for creative.
+    if info.mode == orbit_core::inventory::GameMode::Survival {
+        player.inv.slots = [None; orbit_core::inventory::SLOTS];
+    }
+    info!(
+        "save: starting world {:?} (seed {}) from {}",
+        info.name,
+        info.seed,
+        world.dir.display()
+    );
+    commands.insert_resource(SaveDir((!ephemeral).then_some(world.dir)));
     live.0 = true;
 }
 
-fn load(dir: Res<SaveDir>, mut stations: ResMut<Stations>, mut elevators: ResMut<Elevators>, mut shift: ResMut<TimeShift>, mut chat: ResMut<Chat>) {
+fn load(
+    dir: Res<SaveDir>,
+    mut stations: ResMut<Stations>,
+    mut elevators: ResMut<Elevators>,
+    mut shift: ResMut<TimeShift>,
+    mut chat: ResMut<Chat>,
+) {
     let Some(dir) = &dir.0 else { return };
     if let Ok(data) = std::fs::read(dir.join("world.bin")) {
         if data.len() == 16 && &data[..8] == b"OBWORLD1" {
@@ -128,9 +163,18 @@ fn load(dir: Res<SaveDir>, mut stations: ResMut<Stations>, mut elevators: ResMut
         }
     }
     let mut n = 0;
-    let entries = std::fs::read_dir(dir.join("stations")).into_iter().flatten();
-    for path in entries.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == STATION_EXT)) {
-        match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| Station::from_bytes(&d)) {
+    let entries = std::fs::read_dir(dir.join("stations"))
+        .into_iter()
+        .flatten();
+    for path in entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == STATION_EXT))
+    {
+        match std::fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|d| Station::from_bytes(&d))
+        {
             Ok(s) if stations.find(&s.id).is_none() => {
                 stations.push(s);
                 n += 1;
@@ -144,13 +188,30 @@ fn load(dir: Res<SaveDir>, mut stations: ResMut<Stations>, mut elevators: ResMut
     }
     if n > 0 {
         info!("save: loaded {n} stations from {}", dir.display());
-        chat.info(&format!("Loaded {n} station{}", if n == 1 { "" } else { "s" }));
+        chat.info(&format!(
+            "Loaded {n} station{}",
+            if n == 1 { "" } else { "s" }
+        ));
     }
     // Elevators, once their stations are in.
-    let entries = std::fs::read_dir(dir.join("elevators")).into_iter().flatten();
-    for path in entries.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == ELEVATOR_EXT)) {
-        match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| Elevator::from_bytes(&d)) {
-            Ok(e) if stations.find(&e.station).is_some() && !elevators.list.iter().any(|s| s.e.station == e.station) => elevators.list.push(ElevatorSlot::new(e)),
+    let entries = std::fs::read_dir(dir.join("elevators"))
+        .into_iter()
+        .flatten();
+    for path in entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == ELEVATOR_EXT))
+    {
+        match std::fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|d| Elevator::from_bytes(&d))
+        {
+            Ok(e)
+                if stations.find(&e.station).is_some()
+                    && !elevators.list.iter().any(|s| s.e.station == e.station) =>
+            {
+                elevators.list.push(ElevatorSlot::new(e))
+            }
             Ok(e) => warn!("save: elevator {} has no station, left out", e.station),
             Err(e) => {
                 warn!("save: could not load {}: {e}", path.display());
@@ -176,7 +237,15 @@ fn save_player(dir: &Path, player: &crate::player::Player) -> std::io::Result<()
     write_atomic(&dir.join("player.bin"), &player.inv.to_bytes())
 }
 
-fn autosave(dir: Res<SaveDir>, stations: Res<Stations>, elevators: Res<Elevators>, clock: Res<Clock>, time: Res<Time>, mut since: Local<f32>, player: Query<&crate::player::Player>) {
+fn autosave(
+    dir: Res<SaveDir>,
+    stations: Res<Stations>,
+    elevators: Res<Elevators>,
+    clock: Res<Clock>,
+    time: Res<Time>,
+    mut since: Local<f32>,
+    player: Query<&crate::player::Player>,
+) {
     *since += time.delta_secs();
     if *since < EVERY {
         return;
@@ -193,7 +262,14 @@ fn autosave(dir: Res<SaveDir>, stations: Res<Stations>, elevators: Res<Elevators
 }
 
 /// Saves everything as the game closes (the window shut, or anything asking it to quit).
-fn save_on_exit(mut exit: MessageReader<AppExit>, dir: Res<SaveDir>, stations: Res<Stations>, elevators: Res<Elevators>, clock: Res<Clock>, player: Query<&crate::player::Player>) {
+fn save_on_exit(
+    mut exit: MessageReader<AppExit>,
+    dir: Res<SaveDir>,
+    stations: Res<Stations>,
+    elevators: Res<Elevators>,
+    clock: Res<Clock>,
+    player: Query<&crate::player::Player>,
+) {
     if exit.read().count() == 0 {
         return;
     }
@@ -220,11 +296,41 @@ fn save(dir: &Path, stations: &Stations, elevators: &Elevators, t: f64) -> std::
     save_all(&sdir, STATION_EXT, files)?;
     let edir = dir.join("elevators");
     std::fs::create_dir_all(&edir)?;
-    save_all(&edir, ELEVATOR_EXT, elevators.list.iter().map(|s| (s.e.station.clone(), s.e.to_bytes())))
+    save_all(
+        &edir,
+        ELEVATOR_EXT,
+        elevators
+            .list
+            .iter()
+            .map(|s| (s.e.station.clone(), s.e.to_bytes())),
+    )
+}
+
+/// Flushes the active world before a menu transition.
+pub fn save_now(
+    dir: &SaveDir,
+    stations: &Stations,
+    elevators: &Elevators,
+    clock: &Clock,
+    player: Option<&crate::player::Player>,
+) {
+    let Some(path) = &dir.0 else { return };
+    if let Some(p) = player {
+        if let Err(e) = save_player(path, p) {
+            warn!("save: could not save the inventory: {e}");
+        }
+    }
+    if let Err(e) = save(path, stations, elevators, clock.0) {
+        warn!("save: could not save to {}: {e}", path.display());
+    }
 }
 
 /// Writes `<id>.<ext>` for each one into `dir`, and removes those of ones that are gone.
-fn save_all(dir: &Path, ext: &str, files: impl Iterator<Item = (String, Vec<u8>)>) -> std::io::Result<()> {
+fn save_all(
+    dir: &Path,
+    ext: &str,
+    files: impl Iterator<Item = (String, Vec<u8>)>,
+) -> std::io::Result<()> {
     let mut kept = Vec::new();
     for (id, data) in files {
         let name = format!("{id}.{ext}");

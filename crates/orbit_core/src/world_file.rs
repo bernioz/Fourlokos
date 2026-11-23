@@ -39,7 +39,14 @@ pub struct WorldInfo {
 
 impl WorldInfo {
     pub fn new(name: &str, seed: u64) -> Self {
-        Self { name: name.into(), seed, mode: GameMode::default(), created: 0, played: 0, make: WorldGen::default() }
+        Self {
+            name: name.into(),
+            seed,
+            mode: GameMode::default(),
+            created: 0,
+            played: 0,
+            make: WorldGen::default(),
+        }
     }
 
     pub fn to_text(&self) -> String {
@@ -66,7 +73,14 @@ impl WorldInfo {
         put("day_speed", g.day_speed.to_string());
         put("max_moons", g.max_moons.to_string());
         put("moon_chance", g.moon_chance.to_string());
-        put("allowed", g.allowed.iter().map(|&a| if a { "1" } else { "0" }).collect::<Vec<_>>().join(" "));
+        put(
+            "allowed",
+            g.allowed
+                .iter()
+                .map(|&a| if a { "1" } else { "0" })
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
         let default = Gen::default();
         for (b, p) in Biome::ALL.iter().zip(&g.profiles) {
             // Only what differs from the defaults.
@@ -108,7 +122,9 @@ impl WorldInfo {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let Some((k, v)) = line.split_once('=') else { return Err(format!("line {}: no '='", n + 1)) };
+            let Some((k, v)) = line.split_once('=') else {
+                return Err(format!("line {}: no '='", n + 1));
+            };
             let (k, v) = (k.trim(), v.trim());
             let bad = || format!("line {}: bad value for {k}: {v}", n + 1);
             let f = || v.parse::<f32>().map_err(|_| bad());
@@ -145,8 +161,12 @@ impl WorldInfo {
                 }
                 _ => {
                     if let Some(rest) = k.strip_prefix("profile.") {
-                        let Some((b, field)) = rest.split_once('.') else { continue };
-                        let Some(i) = Biome::ALL.iter().position(|&x| biome_key(x) == b) else { continue };
+                        let Some((b, field)) = rest.split_once('.') else {
+                            continue;
+                        };
+                        let Some(i) = Biome::ALL.iter().position(|&x| biome_key(x) == b) else {
+                            continue;
+                        };
                         set_gen(&mut g.profiles[i], field, v).map_err(|_| bad())?;
                     } else if let Some(field) = k.strip_prefix("spawn.") {
                         let c = spawn.get_or_insert(Customization {
@@ -159,7 +179,12 @@ impl WorldInfo {
                             radius_range: (crate::planet::MIN_RADIUS, crate::planet::MAX_RADIUS),
                         });
                         match field {
-                            "biome" => c.biome = Biome::ALL.into_iter().find(|&x| biome_key(x) == v).ok_or_else(bad)?,
+                            "biome" => {
+                                c.biome = Biome::ALL
+                                    .into_iter()
+                                    .find(|&x| biome_key(x) == v)
+                                    .ok_or_else(bad)?
+                            }
                             "radius" => c.radius = f()?,
                             "seed" => c.seed = v.parse().map_err(|_| bad())?,
                             "day" => c.day = f()?,
@@ -212,7 +237,11 @@ fn gen_fields(g: &mut Gen) -> [(&'static str, &mut f32); 15] {
 }
 
 fn gen_blocks(g: &mut Gen) -> [(&'static str, &mut u8); 3] {
-    [("top", &mut g.top), ("soil", &mut g.soil), ("stone", &mut g.stone)]
+    [
+        ("top", &mut g.top),
+        ("soil", &mut g.soil),
+        ("stone", &mut g.stone),
+    ]
 }
 
 fn set_gen(g: &mut Gen, field: &str, v: &str) -> Result<(), ()> {
@@ -267,7 +296,10 @@ mod tests {
         assert_eq!(back.seed, 42);
         assert_eq!(back.mode, GameMode::Survival);
         let (a, b) = (back.make.spawn.unwrap(), c);
-        assert_eq!((a.biome, a.radius, a.seed, a.knobs, a.day, a.tilt), (b.biome, b.radius, b.seed, b.knobs, b.day, b.tilt));
+        assert_eq!(
+            (a.biome, a.radius, a.seed, a.knobs, a.day, a.tilt),
+            (b.biome, b.radius, b.seed, b.knobs, b.day, b.tilt)
+        );
         let mut g = back.make.clone();
         g.spawn = w.make.spawn;
         assert_eq!(g, w.make.clone().clamped());

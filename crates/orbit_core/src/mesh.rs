@@ -4,7 +4,7 @@
 //! torches a thin stick. Far view: the terrain's columns on a coarser grid, flat-topped with
 //! walls where heights step, so planets look blocky from afar too.
 
-use crate::block::{self, tile, Liquid, Shape};
+use crate::block::{self, Liquid, Shape, tile};
 use crate::light;
 use crate::planet::{ChunkKey, Planet, PlanetSpec, Terrain};
 use crate::rng::mix;
@@ -31,26 +31,51 @@ impl MeshData {
 
     /// A quad; `flip` splits it along the other diagonal. Faces the side its corners wind
     /// counter-clockwise around.
-    fn quad(&mut self, q: [Vec3; 4], uv: [[f32; 2]; 4], n: Vec3, color: [[f32; 3]; 4], light: [[f32; 2]; 4], flip: bool) {
+    fn quad(
+        &mut self,
+        q: [Vec3; 4],
+        uv: [[f32; 2]; 4],
+        n: Vec3,
+        color: [[f32; 3]; 4],
+        light: [[f32; 2]; 4],
+        flip: bool,
+    ) {
         let i0 = self.positions.len() as u32;
         for v in 0..4 {
             self.positions.push(q[v].to_array());
             self.normals.push(n.to_array());
-            self.colors.push([color[v][0], color[v][1], color[v][2], 1.0]);
+            self.colors
+                .push([color[v][0], color[v][1], color[v][2], 1.0]);
             self.uvs.push(uv[v]);
             self.lights.push(light[v]);
         }
         if flip {
-            self.indices.extend([i0 + 1, i0 + 2, i0 + 3, i0 + 1, i0 + 3, i0]);
+            self.indices
+                .extend([i0 + 1, i0 + 2, i0 + 3, i0 + 1, i0 + 3, i0]);
         } else {
-            self.indices.extend([i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
+            self.indices
+                .extend([i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
         }
     }
 
     /// Both faces of a quad (plants), lit as if facing `n`.
-    fn double_quad(&mut self, q: [Vec3; 4], uv: [[f32; 2]; 4], n: Vec3, color: [f32; 3], light: [f32; 2]) {
+    fn double_quad(
+        &mut self,
+        q: [Vec3; 4],
+        uv: [[f32; 2]; 4],
+        n: Vec3,
+        color: [f32; 3],
+        light: [f32; 2],
+    ) {
         self.quad(q, uv, n, [color; 4], [light; 4], false);
-        self.quad([q[0], q[3], q[2], q[1]], [uv[0], uv[3], uv[2], uv[1]], n, [color; 4], [light; 4], false);
+        self.quad(
+            [q[0], q[3], q[2], q[1]],
+            [uv[0], uv[3], uv[2], uv[1]],
+            n,
+            [color; 4],
+            [light; 4],
+            false,
+        );
     }
 }
 
@@ -63,7 +88,9 @@ fn value_noise(p: Vec3, seed: u64) -> f32 {
     let t = p - f;
     let t = t * t * (Vec3::splat(3.0) - 2.0 * t);
     let h = |x: f32, y: f32, z: f32| {
-        let k = mix(seed ^ mix((f.x + x) as i64 as u64 ^ mix((f.y + y) as i64 as u64 ^ mix((f.z + z) as i64 as u64))));
+        let k = mix(seed
+            ^ mix((f.x + x) as i64 as u64
+                ^ mix((f.y + y) as i64 as u64 ^ mix((f.z + z) as i64 as u64))));
         (k >> 40) as f32 / (1u64 << 24) as f32
     };
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
@@ -84,7 +111,10 @@ fn tint(c: [f32; 3], at: Vec3, seed: u64) -> [f32; 3] {
 
 /// (sky, block) brightness of a cell's own light.
 fn own_light(planet: &Planet, c: CellId) -> [f32; 2] {
-    [light::brightness(planet.light(c) as f32), light::glow(planet.block_light(c) as f32)]
+    [
+        light::brightness(planet.light(c) as f32),
+        light::glow(planet.block_light(c) as f32),
+    ]
 }
 
 pub fn chunk_mesh(planet: &Planet, key: ChunkKey) -> MeshData {
@@ -100,12 +130,18 @@ pub struct Meshes {
 
 /// Full chunk meshes (`chunk_mesh` and its water).
 pub fn chunk_meshes(planet: &Planet, key: ChunkKey) -> Meshes {
-    Meshes { solid: mesh_chunk(planet, key, 0), water: water_mesh(planet, key, 0) }
+    Meshes {
+        solid: mesh_chunk(planet, key, 0),
+        water: water_mesh(planet, key, 0),
+    }
 }
 
 /// Shell chunk meshes (`shell_mesh` and the water the sky lights).
 pub fn shell_meshes(planet: &Planet, key: ChunkKey) -> Meshes {
-    Meshes { solid: mesh_chunk(planet, key, SHELL_SKY), water: water_mesh(planet, key, SHELL_SKY) }
+    Meshes {
+        solid: mesh_chunk(planet, key, SHELL_SKY),
+        water: water_mesh(planet, key, SHELL_SKY),
+    }
 }
 
 /// The water of a chunk, faces looking into at least `min_sky` sky light.
@@ -147,7 +183,11 @@ fn corner_height(kind: Liquid, around: impl Iterator<Item = (block::Block, block
     }
     // Summed in a fixed order, so every cell at this corner gets the very same height.
     hs.sort_by(f32::total_cmp);
-    if hs.is_empty() { 8.0 / 9.0 } else { hs.iter().sum::<f32>() / hs.len() as f32 }
+    if hs.is_empty() {
+        8.0 / 9.0
+    } else {
+        hs.iter().sum::<f32>() / hs.len() as f32
+    }
 }
 
 /// A liquid cell's faces, whatever grid it is on. `pos(u, v, w)` is the point at fractions (u, v)
@@ -171,23 +211,24 @@ fn emit_liquid(m: &mut MeshData, l: &LiquidCell) {
     let foot = (l.pos)(0.5, 0.5, 0.0);
     let up = (l.pos)(0.5, 0.5, 1.0) - foot;
     let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
-    let mut face = |mut q: [Vec3; 4], mut uv: [[f32; 2]; 4], out: Vec3, light: [f32; 2], shade: f32| {
-        let mut n = (q[2] - q[0]).cross(q[3] - q[1]).normalize_or_zero();
-        if n.dot(out) < 0.0 {
-            q.swap(1, 3);
-            uv.swap(1, 3);
-            n = -n;
-        }
-        let i0 = m.positions.len() as u32;
-        for v in 0..4 {
-            m.positions.push(q[v].to_array());
-            m.normals.push(n.to_array());
-            m.colors.push([shade, shade, shade, alpha]);
-            m.uvs.push(uv[v]);
-            m.lights.push(light);
-        }
-        m.indices.extend([i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
-    };
+    let mut face =
+        |mut q: [Vec3; 4], mut uv: [[f32; 2]; 4], out: Vec3, light: [f32; 2], shade: f32| {
+            let mut n = (q[2] - q[0]).cross(q[3] - q[1]).normalize_or_zero();
+            if n.dot(out) < 0.0 {
+                q.swap(1, 3);
+                uv.swap(1, 3);
+                n = -n;
+            }
+            let i0 = m.positions.len() as u32;
+            for v in 0..4 {
+                m.positions.push(q[v].to_array());
+                m.normals.push(n.to_array());
+                m.colors.push([shade, shade, shade, alpha]);
+                m.uvs.push(uv[v]);
+                m.lights.push(light);
+            }
+            m.indices.extend([i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
+        };
     if let Some(light) = l.top {
         let q = [0, 1, 2, 3].map(|i| (l.pos)(corners[i].0, corners[i].1, l.heights[i]));
         let uv = corners.map(|(u, v)| tile::uv(t, u, v));
@@ -198,8 +239,18 @@ fn emit_liquid(m: &mut MeshData, l: &LiquidCell) {
         let Some(light) = l.sides[s] else { continue };
         let (ha, hb) = (l.heights[a], l.heights[b]);
         let (ca, cb) = (corners[a], corners[b]);
-        let q = [(l.pos)(ca.0, ca.1, 0.0), (l.pos)(cb.0, cb.1, 0.0), (l.pos)(cb.0, cb.1, hb), (l.pos)(ca.0, ca.1, ha)];
-        let uv = [tile::uv(t, 0.0, 1.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 1.0, 1.0 - hb), tile::uv(t, 0.0, 1.0 - ha)];
+        let q = [
+            (l.pos)(ca.0, ca.1, 0.0),
+            (l.pos)(cb.0, cb.1, 0.0),
+            (l.pos)(cb.0, cb.1, hb),
+            (l.pos)(ca.0, ca.1, ha),
+        ];
+        let uv = [
+            tile::uv(t, 0.0, 1.0),
+            tile::uv(t, 1.0, 1.0),
+            tile::uv(t, 1.0, 1.0 - hb),
+            tile::uv(t, 0.0, 1.0 - ha),
+        ];
         let mid = [(0.0, 0.5), (1.0, 0.5), (0.5, 0.0), (0.5, 1.0)][s];
         face(q, uv, (l.pos)(mid.0, mid.1, 0.0) - foot, light, 0.8);
     }
@@ -219,22 +270,32 @@ fn planet_liquid(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block, 
     let get = |x: Option<CellId>| x.map_or(block::AIR, |x| planet.get(x));
     let lit = |x: Option<CellId>| -> [f32; 2] {
         let x = x.unwrap_or(c);
-        let (sky, glow) = (planet.light(x).max(planet.light(c)), planet.block_light(x).max(planet.block_light(c)));
+        let (sky, glow) = (
+            planet.light(x).max(planet.light(c)),
+            planet.block_light(x).max(planet.block_light(c)),
+        );
         [light::brightness(sky as f32), light::glow(glow as f32)]
     };
     let shows = |x: Option<CellId>| {
         let nb = get(x);
-        block::liquid(nb) != Some(kind) && !block::opaque(nb) && (min_sky == 0 || x.is_none_or(|x| planet.light(x) >= min_sky))
+        block::liquid(nb) != Some(kind)
+            && !block::opaque(nb)
+            && (min_sky == 0 || x.is_none_or(|x| planet.light(x) >= min_sky))
     };
     // The four cells around each corner, found by point a little out from it in the layer.
     let r = g.radius(k) + 0.5;
-    let (eu, ev) = ((g.dir(f, i + 1, j) - g.dir(f, i, j)).normalize(), (g.dir(f, i, j + 1) - g.dir(f, i, j)).normalize());
+    let (eu, ev) = (
+        (g.dir(f, i + 1, j) - g.dir(f, i, j)).normalize(),
+        (g.dir(f, i, j + 1) - g.dir(f, i, j)).normalize(),
+    );
     let heights = [(0, 0), (1, 0), (1, 1), (0, 1)].map(|(di, dj)| {
         let at = g.dir(f, i + di, j + dj) * r;
-        let around = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].into_iter().map(|(su, sv)| {
-            let q = g.cell_at(at + eu * (0.45 * su) + ev * (0.45 * sv));
-            (get(q), get(q.and_then(|q| g.neighbor(q, Side::Top))))
-        });
+        let around = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+            .into_iter()
+            .map(|(su, sv)| {
+                let q = g.cell_at(at + eu * (0.45 * su) + ev * (0.45 * sv));
+                (get(q), get(q.and_then(|q| g.neighbor(q, Side::Top))))
+            });
         corner_height(kind, around)
     });
     let above = g.neighbor(c, Side::Top);
@@ -248,8 +309,15 @@ fn planet_liquid(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block, 
         kind,
         heights,
         pos: &pos,
-        top: (block::liquid(get(above)) != Some(kind) && (min_sky == 0 || above.is_none_or(|x| planet.light(x) >= min_sky))).then(|| lit(above)),
-        sides: [side(Side::IMinus), side(Side::IPlus), side(Side::JMinus), side(Side::JPlus)],
+        top: (block::liquid(get(above)) != Some(kind)
+            && (min_sky == 0 || above.is_none_or(|x| planet.light(x) >= min_sky)))
+        .then(|| lit(above)),
+        sides: [
+            side(Side::IMinus),
+            side(Side::IPlus),
+            side(Side::JMinus),
+            side(Side::JPlus),
+        ],
         bottom: (below.is_some() && shows(below)).then(|| lit(below)),
     };
     emit_liquid(m, &cell);
@@ -273,7 +341,10 @@ fn mesh_chunk(planet: &Planet, key: ChunkKey, min_sky: u8) -> MeshData {
     for c in planet.chunk_cells(key) {
         let b = planet.get(c);
         let shape = block::shape(b);
-        if min_sky > 0 && !matches!(shape, Shape::Empty | Shape::Cube | Shape::Liquid) && planet.light(c) < min_sky {
+        if min_sky > 0
+            && !matches!(shape, Shape::Empty | Shape::Cube | Shape::Liquid)
+            && planet.light(c) < min_sky
+        {
             continue;
         }
         match shape {
@@ -281,23 +352,47 @@ fn mesh_chunk(planet: &Planet, key: ChunkKey, min_sky: u8) -> MeshData {
             Shape::Cube => cube(planet, &mut m, c, b, seed, min_sky),
             Shape::Cross => {
                 let up = g.center(c).normalize();
-                let color = if block::tinted(b) { tint([1.0; 3], g.center(c), seed) } else { [1.0; 3] };
+                let color = if block::tinted(b) {
+                    tint([1.0; 3], g.center(c), seed)
+                } else {
+                    [1.0; 3]
+                };
                 let t = block::tiles(b)[1];
-                let uv = [tile::uv(t, 0.0, 1.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 0.0, 0.0)];
+                let uv = [
+                    tile::uv(t, 0.0, 1.0),
+                    tile::uv(t, 1.0, 1.0),
+                    tile::uv(t, 1.0, 0.0),
+                    tile::uv(t, 0.0, 0.0),
+                ];
                 let light = own_light(planet, c);
                 // Corner to corner, a little in from the cell's edges, like Minecraft's.
                 let (a, z) = (0.15, 0.85);
                 for (u0, v0, u1, v1) in [(a, a, z, z), (z, a, a, z)] {
-                    let q = [g.point(c, u0, v0, 0.0), g.point(c, u1, v1, 0.0), g.point(c, u1, v1, 1.0), g.point(c, u0, v0, 1.0)];
+                    let q = [
+                        g.point(c, u0, v0, 0.0),
+                        g.point(c, u1, v1, 0.0),
+                        g.point(c, u1, v1, 1.0),
+                        g.point(c, u0, v0, 1.0),
+                    ];
                     m.double_quad(q, uv, up, color, light);
                 }
             }
             Shape::Torch => torch(planet, &mut m, c, b),
             Shape::Boxes => {
-                let open = Side::ALL.map(|s| g.neighbor(c, s).is_none_or(|nb| !block::opaque(planet.get(nb))));
+                let open = Side::ALL.map(|s| {
+                    g.neighbor(c, s)
+                        .is_none_or(|nb| !block::opaque(planet.get(nb)))
+                });
                 let pos = |u: f32, v: f32, w: f32| g.point(c, u, v, w);
                 let join = crate::shape::joined(planet, c);
-                emit_boxes(&mut m, block::tiles(b), crate::shape::boxes(b, join), &pos, own_light(planet, c), open);
+                emit_boxes(
+                    &mut m,
+                    block::tiles(b),
+                    crate::shape::boxes(b, join),
+                    &pos,
+                    own_light(planet, c),
+                    open,
+                );
             }
             // Lava is drawn with the blocks; water has its own mesh.
             Shape::Liquid => {
@@ -318,7 +413,10 @@ fn cube(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block, seed: u64
     let jitter = 0.95 + (mix(c as u64 ^ seed) % 1000) as f32 * 0.0001;
     for s in Side::ALL {
         let exposed = match g.neighbor(c, s) {
-            Some(nb) => !block::face_hidden(b, planet.get(nb)) && (min_sky == 0 || planet.light(nb) >= min_sky),
+            Some(nb) => {
+                !block::face_hidden(b, planet.get(nb))
+                    && (min_sky == 0 || planet.light(nb) >= min_sky)
+            }
             None => s == Side::Top,
         };
         if !exposed {
@@ -332,8 +430,18 @@ fn cube(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block, seed: u64
         };
         // Side quads run bottom (k) to top: the texture's v points down the side.
         let mut uv = match s {
-            Side::Top | Side::Bottom => [tile::uv(t, 0.0, 0.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 0.0, 1.0)],
-            _ => [tile::uv(t, 0.0, 1.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 0.0, 0.0)],
+            Side::Top | Side::Bottom => [
+                tile::uv(t, 0.0, 0.0),
+                tile::uv(t, 1.0, 0.0),
+                tile::uv(t, 1.0, 1.0),
+                tile::uv(t, 0.0, 1.0),
+            ],
+            _ => [
+                tile::uv(t, 0.0, 1.0),
+                tile::uv(t, 1.0, 1.0),
+                tile::uv(t, 1.0, 0.0),
+                tile::uv(t, 0.0, 0.0),
+            ],
         };
         let mut nrm = (q[1] - q[0]).cross(q[3] - q[0]).normalize();
         let mid = (q[0] + q[1] + q[2] + q[3]) * 0.25;
@@ -343,7 +451,11 @@ fn cube(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block, seed: u64
             nrm = -nrm;
         }
         // Grass tints its top only; its sides are dirt with a green fringe already painted.
-        let base = if block::tinted(b) && (b != block::GRASS || s == Side::Top) { tint([1.0; 3], center, seed) } else { [1.0; 3] };
+        let base = if block::tinted(b) && (b != block::GRASS || s == Side::Top) {
+            tint([1.0; 3], center, seed)
+        } else {
+            [1.0; 3]
+        };
         let shade = jitter
             * match s {
                 Side::Top => 1.0,
@@ -376,7 +488,11 @@ fn cube(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block, seed: u64
             let sky = levels.iter().map(|l| l.0 as f32).sum::<f32>() / count;
             let glow = levels.iter().map(|l| l.1 as f32).sum::<f32>() / count;
             lights[i] = [light::brightness(sky), light::glow(glow)];
-            if s1 && s2 { 3 } else { s1 as usize + s2 as usize + corner as usize }
+            if s1 && s2 {
+                3
+            } else {
+                s1 as usize + s2 as usize + corner as usize
+            }
         });
         let colors = ao.map(|o| base.map(|x| x * shade * AO[o]));
         // Split along the diagonal that keeps occlusion gradients smooth.
@@ -390,18 +506,75 @@ use crate::shape::torch_point as torch_at;
 /// fractions of its cell, `open` whether each side of the cell (u-, u+, v-, v+, bottom, top) can
 /// be seen (faces flush with a hidden side are left out). Each face shows the part of the tile
 /// it covers, so a door's panel shows the whole door and its edges a strip of it.
-fn emit_boxes(m: &mut MeshData, tiles: [u16; 3], boxes: crate::shape::Boxes, pos: &dyn Fn(f32, f32, f32) -> Vec3, light: [f32; 2], open: [bool; 6]) {
+fn emit_boxes(
+    m: &mut MeshData,
+    tiles: [u16; 3],
+    boxes: crate::shape::Boxes,
+    pos: &dyn Fn(f32, f32, f32) -> Vec3,
+    light: [f32; 2],
+    open: [bool; 6],
+) {
     for x in boxes.iter() {
         let [u0, v0, w0, u1, v1, w1] = x;
         let mid = pos((u0 + u1) * 0.5, (v0 + v1) * 0.5, (w0 + w1) * 0.5);
         // (corners as (u, v, w), their uv in the tile, the cell side it lies on if flush, shade)
         let faces: [([(f32, f32, f32); 4], [(f32, f32); 4], Option<usize>, f32); 6] = [
-            ([(u0, v0, w0), (u1, v0, w0), (u1, v1, w0), (u0, v1, w0)], [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], (w0 <= 0.0).then_some(4), 0.6),
-            ([(u0, v0, w1), (u1, v0, w1), (u1, v1, w1), (u0, v1, w1)], [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], (w1 >= 1.0).then_some(5), 1.0),
-            ([(u0, v0, w0), (u0, v1, w0), (u0, v1, w1), (u0, v0, w1)], [(v0, 1.0 - w0), (v1, 1.0 - w0), (v1, 1.0 - w1), (v0, 1.0 - w1)], (u0 <= 0.0).then_some(0), 0.82),
-            ([(u1, v0, w0), (u1, v1, w0), (u1, v1, w1), (u1, v0, w1)], [(v0, 1.0 - w0), (v1, 1.0 - w0), (v1, 1.0 - w1), (v0, 1.0 - w1)], (u1 >= 1.0).then_some(1), 0.82),
-            ([(u0, v0, w0), (u1, v0, w0), (u1, v0, w1), (u0, v0, w1)], [(u0, 1.0 - w0), (u1, 1.0 - w0), (u1, 1.0 - w1), (u0, 1.0 - w1)], (v0 <= 0.0).then_some(2), 0.72),
-            ([(u0, v1, w0), (u1, v1, w0), (u1, v1, w1), (u0, v1, w1)], [(u0, 1.0 - w0), (u1, 1.0 - w0), (u1, 1.0 - w1), (u0, 1.0 - w1)], (v1 >= 1.0).then_some(3), 0.72),
+            (
+                [(u0, v0, w0), (u1, v0, w0), (u1, v1, w0), (u0, v1, w0)],
+                [(u0, v0), (u1, v0), (u1, v1), (u0, v1)],
+                (w0 <= 0.0).then_some(4),
+                0.6,
+            ),
+            (
+                [(u0, v0, w1), (u1, v0, w1), (u1, v1, w1), (u0, v1, w1)],
+                [(u0, v0), (u1, v0), (u1, v1), (u0, v1)],
+                (w1 >= 1.0).then_some(5),
+                1.0,
+            ),
+            (
+                [(u0, v0, w0), (u0, v1, w0), (u0, v1, w1), (u0, v0, w1)],
+                [
+                    (v0, 1.0 - w0),
+                    (v1, 1.0 - w0),
+                    (v1, 1.0 - w1),
+                    (v0, 1.0 - w1),
+                ],
+                (u0 <= 0.0).then_some(0),
+                0.82,
+            ),
+            (
+                [(u1, v0, w0), (u1, v1, w0), (u1, v1, w1), (u1, v0, w1)],
+                [
+                    (v0, 1.0 - w0),
+                    (v1, 1.0 - w0),
+                    (v1, 1.0 - w1),
+                    (v0, 1.0 - w1),
+                ],
+                (u1 >= 1.0).then_some(1),
+                0.82,
+            ),
+            (
+                [(u0, v0, w0), (u1, v0, w0), (u1, v0, w1), (u0, v0, w1)],
+                [
+                    (u0, 1.0 - w0),
+                    (u1, 1.0 - w0),
+                    (u1, 1.0 - w1),
+                    (u0, 1.0 - w1),
+                ],
+                (v0 <= 0.0).then_some(2),
+                0.72,
+            ),
+            (
+                [(u0, v1, w0), (u1, v1, w0), (u1, v1, w1), (u0, v1, w1)],
+                [
+                    (u0, 1.0 - w0),
+                    (u1, 1.0 - w0),
+                    (u1, 1.0 - w1),
+                    (u0, 1.0 - w1),
+                ],
+                (v1 >= 1.0).then_some(3),
+                0.72,
+            ),
         ];
         for (f, (corners, uvs, flush, shade)) in faces.into_iter().enumerate() {
             if flush.is_some_and(|s| !open[s]) {
@@ -448,13 +621,132 @@ fn torch(planet: &Planet, m: &mut MeshData, c: CellId, b: block::Block) {
         m.quad(q, uv, n, [[1.0; 3]; 4], [light; 4], false);
     };
     // Sides: the stick's column of the tile, v from the flame down to the foot.
-    let side = [tile::uv(t, lo, 1.0), tile::uv(t, hi, 1.0), tile::uv(t, hi, 1.0 - top), tile::uv(t, lo, 1.0 - top)];
-    face([p(lo, lo, 0.0), p(hi, lo, 0.0), p(hi, lo, top), p(lo, lo, top)], side);
-    face([p(lo, hi, 0.0), p(hi, hi, 0.0), p(hi, hi, top), p(lo, hi, top)], side);
-    face([p(lo, lo, 0.0), p(lo, hi, 0.0), p(lo, hi, top), p(lo, lo, top)], side);
-    face([p(hi, lo, 0.0), p(hi, hi, 0.0), p(hi, hi, top), p(hi, lo, top)], side);
-    let tip = [tile::uv(t, lo, 1.0 - top), tile::uv(t, hi, 1.0 - top), tile::uv(t, hi, 1.0 - top + 2.0 / 16.0), tile::uv(t, lo, 1.0 - top + 2.0 / 16.0)];
-    face([p(lo, lo, top), p(hi, lo, top), p(hi, hi, top), p(lo, hi, top)], tip);
+    let side = [
+        tile::uv(t, lo, 1.0),
+        tile::uv(t, hi, 1.0),
+        tile::uv(t, hi, 1.0 - top),
+        tile::uv(t, lo, 1.0 - top),
+    ];
+    face(
+        [
+            p(lo, lo, 0.0),
+            p(hi, lo, 0.0),
+            p(hi, lo, top),
+            p(lo, lo, top),
+        ],
+        side,
+    );
+    face(
+        [
+            p(lo, hi, 0.0),
+            p(hi, hi, 0.0),
+            p(hi, hi, top),
+            p(lo, hi, top),
+        ],
+        side,
+    );
+    face(
+        [
+            p(lo, lo, 0.0),
+            p(lo, hi, 0.0),
+            p(lo, hi, top),
+            p(lo, lo, top),
+        ],
+        side,
+    );
+    face(
+        [
+            p(hi, lo, 0.0),
+            p(hi, hi, 0.0),
+            p(hi, hi, top),
+            p(hi, lo, top),
+        ],
+        side,
+    );
+    let tip = [
+        tile::uv(t, lo, 1.0 - top),
+        tile::uv(t, hi, 1.0 - top),
+        tile::uv(t, hi, 1.0 - top + 2.0 / 16.0),
+        tile::uv(t, lo, 1.0 - top + 2.0 / 16.0),
+    ];
+    face(
+        [
+            p(lo, lo, top),
+            p(hi, lo, top),
+            p(hi, hi, top),
+            p(lo, hi, top),
+        ],
+        tip,
+    );
+}
+
+/// A flat picture thickened into a thin slab, as Minecraft draws a tool in the hand: one little
+/// box for each opaque pixel of the 16 × 16 tile `t` (`mask`, rows from the top), `height` tall,
+/// its bottom in the middle at the origin, facing +z. Sides show only where a neighbor pixel is
+/// clear.
+pub fn sprite_mesh(t: u16, mask: &[bool; 256], height: f32, light: [f32; 2]) -> MeshData {
+    let mut m = MeshData::default();
+    let s = height / 16.0;
+    let on = |x: i32, y: i32| {
+        (0..16).contains(&x) && (0..16).contains(&y) && mask[(y * 16 + x) as usize]
+    };
+    for y in 0..16i32 {
+        for x in 0..16i32 {
+            if !on(x, y) {
+                continue;
+            }
+            let uvc = tile::uv(t, (x as f32 + 0.5) / 16.0, (y as f32 + 0.5) / 16.0);
+            let (x0, x1) = ((x as f32 - 8.0) * s, (x as f32 - 7.0) * s);
+            let (y0, y1) = ((15 - y) as f32 * s, (16 - y) as f32 * s);
+            let (z0, z1) = (-s * 0.5, s * 0.5);
+            let p = |a: f32, b: f32, c: f32| Vec3::new(a, b, c);
+            // (corners, outward normal, shade, whether it shows)
+            let faces = [
+                (
+                    [p(x0, y0, z1), p(x1, y0, z1), p(x1, y1, z1), p(x0, y1, z1)],
+                    Vec3::Z,
+                    1.0,
+                    true,
+                ),
+                (
+                    [p(x0, y0, z0), p(x0, y1, z0), p(x1, y1, z0), p(x1, y0, z0)],
+                    -Vec3::Z,
+                    0.7,
+                    true,
+                ),
+                (
+                    [p(x0, y0, z0), p(x0, y0, z1), p(x0, y1, z1), p(x0, y1, z0)],
+                    -Vec3::X,
+                    0.8,
+                    !on(x - 1, y),
+                ),
+                (
+                    [p(x1, y0, z0), p(x1, y1, z0), p(x1, y1, z1), p(x1, y0, z1)],
+                    Vec3::X,
+                    0.8,
+                    !on(x + 1, y),
+                ),
+                (
+                    [p(x0, y1, z0), p(x0, y1, z1), p(x1, y1, z1), p(x1, y1, z0)],
+                    Vec3::Y,
+                    0.9,
+                    !on(x, y - 1),
+                ),
+                (
+                    [p(x0, y0, z0), p(x1, y0, z0), p(x1, y0, z1), p(x0, y0, z1)],
+                    -Vec3::Y,
+                    0.6,
+                    !on(x, y + 1),
+                ),
+            ];
+            for (q, n, shade, show) in faces {
+                if show {
+                    m.quad(q, [uvc; 4], n, [[shade; 3]; 4], [light; 4], false);
+                }
+            }
+        }
+    }
+    m
 }
 
 /// An item lying in the world, a quarter of a block: whole blocks as a little cube, doors,
@@ -464,9 +756,20 @@ pub fn item_mesh(b: block::Block, light: [f32; 2]) -> MeshData {
     let mut m = MeshData::default();
     let pos = |u: f32, v: f32, w: f32| Vec3::new(u - 0.5, w, v - 0.5) * 0.25;
     match block::shape(b) {
-        Shape::Cube => emit_boxes(&mut m, block::tiles(b), crate::shape::Boxes::full(), &pos, light, [true; 6]),
+        Shape::Cube => emit_boxes(
+            &mut m,
+            block::tiles(b),
+            crate::shape::Boxes::full(),
+            &pos,
+            light,
+            [true; 6],
+        ),
         Shape::Boxes => {
-            let join = if crate::shape::connects(b) { [true, true, false, false] } else { [false; 4] };
+            let join = if crate::shape::connects(b) {
+                [true, true, false, false]
+            } else {
+                [false; 4]
+            };
             let boxes = crate::shape::boxes(b, join);
             // Standing boards (a ladder, a door) stand in the middle.
             emit_boxes(&mut m, block::tiles(b), boxes, &pos, light, [true; 6]);
@@ -474,8 +777,18 @@ pub fn item_mesh(b: block::Block, light: [f32; 2]) -> MeshData {
         _ => {
             let t = block::tiles(b)[1];
             let h = 0.4;
-            let q = [Vec3::new(-h / 2.0, 0.0, 0.0), Vec3::new(h / 2.0, 0.0, 0.0), Vec3::new(h / 2.0, h, 0.0), Vec3::new(-h / 2.0, h, 0.0)];
-            let uv = [tile::uv(t, 0.0, 1.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 0.0, 0.0)];
+            let q = [
+                Vec3::new(-h / 2.0, 0.0, 0.0),
+                Vec3::new(h / 2.0, 0.0, 0.0),
+                Vec3::new(h / 2.0, h, 0.0),
+                Vec3::new(-h / 2.0, h, 0.0),
+            ];
+            let uv = [
+                tile::uv(t, 0.0, 1.0),
+                tile::uv(t, 1.0, 1.0),
+                tile::uv(t, 1.0, 0.0),
+                tile::uv(t, 0.0, 0.0),
+            ];
             m.double_quad(q, uv, Vec3::Z, [1.0; 3], light);
         }
     }
@@ -488,8 +801,19 @@ pub fn planet_meshes(planet: &Planet) -> Vec<(ChunkKey, MeshData)> {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let per = keys.len().div_ceil(threads);
     std::thread::scope(|s| {
-        let jobs: Vec<_> = keys.chunks(per).map(|ks| s.spawn(move || ks.iter().map(|&k| (k, chunk_mesh(planet, k))).collect::<Vec<_>>())).collect();
-        jobs.into_iter().flat_map(|j| j.join().expect("mesh thread")).collect()
+        let jobs: Vec<_> = keys
+            .chunks(per)
+            .map(|ks| {
+                s.spawn(move || {
+                    ks.iter()
+                        .map(|&k| (k, chunk_mesh(planet, k)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        jobs.into_iter()
+            .flat_map(|j| j.join().expect("mesh thread"))
+            .collect()
     })
 }
 
@@ -507,14 +831,23 @@ pub fn far_mesh(spec: &PlanetSpec, res: usize) -> MeshData {
     let lit = [[1.0, 0.0]; 4];
     let color = |b: block::Block, at: Vec3| {
         let c = block::color(b);
-        if block::tinted(b) { tint(c, at, spec.seed) } else { c }
+        if block::tinted(b) {
+            tint(c, at, spec.seed)
+        } else {
+            c
+        }
     };
     let mut m = MeshData::default();
     for c in 0..cells {
         let (f, i, j, _) = g.coords(c);
         let col = &columns[c];
         let r = radius(c);
-        let d = [g.dir(f, i, j), g.dir(f, i + 1, j), g.dir(f, i + 1, j + 1), g.dir(f, i, j + 1)];
+        let d = [
+            g.dir(f, i, j),
+            g.dir(f, i + 1, j),
+            g.dir(f, i + 1, j + 1),
+            g.dir(f, i, j + 1),
+        ];
         let q = d.map(|x| x * r);
         let mut top = [q[0], q[1], q[2], q[3]];
         if (top[1] - top[0]).cross(top[3] - top[0]).dot(top[0]) < 0.0 {
@@ -534,14 +867,32 @@ pub fn far_mesh(spec: &PlanetSpec, res: usize) -> MeshData {
         // Lava glows (alpha 0 flags it for the shader), day or night.
         let alpha = if col.liquid == block::LAVA { 0.0 } else { 1.0 };
         let i0 = m.positions.len();
-        m.quad(top, [white; 4], g.center(c).normalize(), [tc; 4], lit, false);
+        m.quad(
+            top,
+            [white; 4],
+            g.center(c).normalize(),
+            [tc; 4],
+            lit,
+            false,
+        );
         for v in &mut m.colors[i0..] {
             v[3] = alpha;
         }
         // Walls down to lower neighbors, on the edge they share.
         let (_, sub, deep) = col.biome.layers();
-        let wall = if col.top == block::SNOW { block::SNOW } else if col.rocky { block::STONE } else { sub };
-        for (s, (a, b)) in [(Side::IMinus, (0, 3)), (Side::IPlus, (1, 2)), (Side::JMinus, (0, 1)), (Side::JPlus, (3, 2))] {
+        let wall = if col.top == block::SNOW {
+            block::SNOW
+        } else if col.rocky {
+            block::STONE
+        } else {
+            sub
+        };
+        for (s, (a, b)) in [
+            (Side::IMinus, (0, 3)),
+            (Side::IPlus, (1, 2)),
+            (Side::JMinus, (0, 1)),
+            (Side::JPlus, (3, 2)),
+        ] {
             let Some(nb) = g.neighbor(c, s) else { continue };
             let low = radius(nb);
             if low >= r {
@@ -570,6 +921,28 @@ mod tests {
 
     /// Every edge of a closed surface is shared by an even number of triangles; an odd count is a hole.
     #[test]
+    fn sprites_are_slabs_with_sides_only_on_the_edge() {
+        let mut one = [false; 256];
+        one[5 * 16 + 5] = true;
+        assert_eq!(sprite_mesh(0, &one, 0.4, [1.0, 0.0]).indices.len(), 6 * 6);
+        let mut two = one;
+        two[5 * 16 + 6] = true;
+        // Two pixels side by side: 2 × (front + back) + 2 × 3 outer sides.
+        assert_eq!(
+            sprite_mesh(0, &two, 0.4, [1.0, 0.0]).indices.len(),
+            (4 + 6) * 6
+        );
+        assert!(sprite_mesh(0, &[false; 256], 0.4, [1.0, 0.0]).is_empty());
+        // Every quad faces its normal.
+        let m = sprite_mesh(0, &two, 0.4, [1.0, 0.0]);
+        for t in m.indices.chunks(3) {
+            let v = |i: u32| Vec3::from(m.positions[i as usize]);
+            let n = (v(t[1]) - v(t[0])).cross(v(t[2]) - v(t[0]));
+            assert!(n.dot(Vec3::from(m.normals[t[0] as usize])) > 0.0);
+        }
+    }
+
+    #[test]
     fn voxel_mesh_is_watertight() {
         // Barren: nothing but whole blocks (plants are open planes, not part of a closed surface).
         // No seas or caves (lava lakes): liquid surfaces are open sheets.
@@ -584,12 +957,19 @@ mod tests {
             for t in m.indices.chunks(3) {
                 for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
                     let (a, b) = (q(m.positions[a as usize]), q(m.positions[b as usize]));
-                    *edges.entry(if a < b { (a, b) } else { (b, a) }).or_default() += 1;
+                    *edges
+                        .entry(if a < b { (a, b) } else { (b, a) })
+                        .or_default() += 1;
                 }
             }
         }
         let open: Vec<_> = edges.iter().filter(|e| e.1 % 2 == 1).collect();
-        assert!(open.is_empty(), "{} open edges, e.g. {:?}", open.len(), open.first());
+        assert!(
+            open.is_empty(),
+            "{} open edges, e.g. {:?}",
+            open.len(),
+            open.first()
+        );
     }
 
     #[test]
@@ -601,12 +981,25 @@ mod tests {
             full += f.indices.len();
             shell += s.indices.len();
             // Faces pointing away from the core: the ground and plants seen from above.
-            let up = |m: &MeshData| (0..m.normals.len()).step_by(4).filter(|&i| Vec3::from(m.normals[i]).dot(Vec3::from(m.positions[i]).normalize()) > 0.9).count();
+            let up = |m: &MeshData| {
+                (0..m.normals.len())
+                    .step_by(4)
+                    .filter(|&i| {
+                        Vec3::from(m.normals[i]).dot(Vec3::from(m.positions[i]).normalize()) > 0.9
+                    })
+                    .count()
+            };
             tops_full += up(&f);
             tops_shell += up(&s);
         }
-        assert!(shell * 10 < full * 9, "shell {shell} vs full {full} indices");
-        assert!(tops_shell * 10 > tops_full * 6, "lost too much surface: {tops_shell} of {tops_full} upward faces");
+        assert!(
+            shell * 10 < full * 9,
+            "shell {shell} vs full {full} indices"
+        );
+        assert!(
+            tops_shell * 10 > tops_full * 6,
+            "lost too much surface: {tops_shell} of {tops_full} upward faces"
+        );
     }
 }
 
@@ -625,26 +1018,40 @@ pub fn station_meshes(s: &crate::station::Station) -> Meshes {
             station_liquid(s, &light, &mut water, p, b);
         }
     }
-    Meshes { solid: station_solid(s, &light), water }
+    Meshes {
+        solid: station_solid(s, &light),
+        water,
+    }
 }
 
 /// A liquid cell on a station (see `planet_liquid`).
-fn station_liquid(s: &crate::station::Station, light: &crate::station::Light, m: &mut MeshData, p: glam::IVec3, b: block::Block) {
+fn station_liquid(
+    s: &crate::station::Station,
+    light: &crate::station::Light,
+    m: &mut MeshData,
+    p: glam::IVec3,
+    b: block::Block,
+) {
     use glam::IVec3;
     let Some(kind) = block::liquid(b) else { return };
     let lit = |q: IVec3| {
         let ((a, g), (c, h)) = (light.at(q), light.at(p));
-        [light::brightness(a.max(c) as f32), light::glow(g.max(h) as f32)]
+        [
+            light::brightness(a.max(c) as f32),
+            light::glow(g.max(h) as f32),
+        ]
     };
     let shows = |q: IVec3| {
         let nb = s.get(q);
         block::liquid(nb) != Some(kind) && !block::opaque(nb)
     };
     let heights = [(0, 0), (1, 0), (1, 1), (0, 1)].map(|(dx, dz)| {
-        let around = [(-1, -1), (0, -1), (0, 0), (-1, 0)].into_iter().map(|(ox, oz)| {
-            let q = p + IVec3::new(dx + ox, 0, dz + oz);
-            (s.get(q), s.get(q + IVec3::Y))
-        });
+        let around = [(-1, -1), (0, -1), (0, 0), (-1, 0)]
+            .into_iter()
+            .map(|(ox, oz)| {
+                let q = p + IVec3::new(dx + ox, 0, dz + oz);
+                (s.get(q), s.get(q + IVec3::Y))
+            });
         corner_height(kind, around)
     });
     let base = p.as_vec3();
@@ -655,7 +1062,12 @@ fn station_liquid(s: &crate::station::Station, light: &crate::station::Light, m:
         heights,
         pos: &pos,
         top: (block::liquid(s.get(p + IVec3::Y)) != Some(kind)).then(|| lit(p + IVec3::Y)),
-        sides: [side(IVec3::NEG_X), side(IVec3::X), side(IVec3::NEG_Z), side(IVec3::Z)],
+        sides: [
+            side(IVec3::NEG_X),
+            side(IVec3::X),
+            side(IVec3::NEG_Z),
+            side(IVec3::Z),
+        ],
         bottom: side(IVec3::NEG_Y),
     };
     emit_liquid(m, &cell);
@@ -671,12 +1083,60 @@ fn station_solid(s: &crate::station::Station, light: &crate::station::Light) -> 
     // Corners of each side, counter-clockwise seen from outside, bottom (v = 1) first for the
     // sides so the texture stands upright; and the side's outward normal.
     let sides: [(IVec3, [Vec3; 4]); 6] = [
-        (IVec3::Y, [Vec3::new(0., 1., 0.), Vec3::new(0., 1., 1.), Vec3::new(1., 1., 1.), Vec3::new(1., 1., 0.)]),
-        (IVec3::NEG_Y, [Vec3::new(0., 0., 0.), Vec3::new(1., 0., 0.), Vec3::new(1., 0., 1.), Vec3::new(0., 0., 1.)]),
-        (IVec3::X, [Vec3::new(1., 0., 1.), Vec3::new(1., 0., 0.), Vec3::new(1., 1., 0.), Vec3::new(1., 1., 1.)]),
-        (IVec3::NEG_X, [Vec3::new(0., 0., 0.), Vec3::new(0., 0., 1.), Vec3::new(0., 1., 1.), Vec3::new(0., 1., 0.)]),
-        (IVec3::Z, [Vec3::new(0., 0., 1.), Vec3::new(1., 0., 1.), Vec3::new(1., 1., 1.), Vec3::new(0., 1., 1.)]),
-        (IVec3::NEG_Z, [Vec3::new(1., 0., 0.), Vec3::new(0., 0., 0.), Vec3::new(0., 1., 0.), Vec3::new(1., 1., 0.)]),
+        (
+            IVec3::Y,
+            [
+                Vec3::new(0., 1., 0.),
+                Vec3::new(0., 1., 1.),
+                Vec3::new(1., 1., 1.),
+                Vec3::new(1., 1., 0.),
+            ],
+        ),
+        (
+            IVec3::NEG_Y,
+            [
+                Vec3::new(0., 0., 0.),
+                Vec3::new(1., 0., 0.),
+                Vec3::new(1., 0., 1.),
+                Vec3::new(0., 0., 1.),
+            ],
+        ),
+        (
+            IVec3::X,
+            [
+                Vec3::new(1., 0., 1.),
+                Vec3::new(1., 0., 0.),
+                Vec3::new(1., 1., 0.),
+                Vec3::new(1., 1., 1.),
+            ],
+        ),
+        (
+            IVec3::NEG_X,
+            [
+                Vec3::new(0., 0., 0.),
+                Vec3::new(0., 0., 1.),
+                Vec3::new(0., 1., 1.),
+                Vec3::new(0., 1., 0.),
+            ],
+        ),
+        (
+            IVec3::Z,
+            [
+                Vec3::new(0., 0., 1.),
+                Vec3::new(1., 0., 1.),
+                Vec3::new(1., 1., 1.),
+                Vec3::new(0., 1., 1.),
+            ],
+        ),
+        (
+            IVec3::NEG_Z,
+            [
+                Vec3::new(1., 0., 0.),
+                Vec3::new(0., 0., 0.),
+                Vec3::new(0., 1., 0.),
+                Vec3::new(1., 1., 0.),
+            ],
+        ),
     ];
     let seed = 0x57A7_1011u64;
     for (p, b) in s.cells().chain(s.stray_liquids()) {
@@ -690,7 +1150,9 @@ fn station_solid(s: &crate::station::Station, light: &crate::station::Light) -> 
             }
             Shape::Cube => {
                 let tiles = block::tiles(b);
-                let jitter = 0.95 + (mix((p.x as u64) ^ mix((p.y as u64) ^ mix(p.z as u64))) % 1000) as f32 * 0.0001;
+                let jitter = 0.95
+                    + (mix((p.x as u64) ^ mix((p.y as u64) ^ mix(p.z as u64))) % 1000) as f32
+                        * 0.0001;
                 for (n, corners) in sides {
                     let nb = p + n;
                     if block::face_hidden(b, s.get(nb)) {
@@ -703,13 +1165,27 @@ fn station_solid(s: &crate::station::Station, light: &crate::station::Light) -> 
                         _ => (tiles[1], 0.82),
                     };
                     let uv = if n.y != 0 {
-                        [tile::uv(t, 0.0, 0.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 0.0, 1.0)]
+                        [
+                            tile::uv(t, 0.0, 0.0),
+                            tile::uv(t, 1.0, 0.0),
+                            tile::uv(t, 1.0, 1.0),
+                            tile::uv(t, 0.0, 1.0),
+                        ]
                     } else {
-                        [tile::uv(t, 0.0, 1.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 0.0, 0.0)]
+                        [
+                            tile::uv(t, 0.0, 1.0),
+                            tile::uv(t, 1.0, 1.0),
+                            tile::uv(t, 1.0, 0.0),
+                            tile::uv(t, 0.0, 0.0),
+                        ]
                     };
                     let center = base + Vec3::splat(0.5);
                     let tinted = block::tinted(b) && (b != block::GRASS || n.y == 1);
-                    let color = if tinted { tint([1.0; 3], center, seed) } else { [1.0; 3] };
+                    let color = if tinted {
+                        tint([1.0; 3], center, seed)
+                    } else {
+                        [1.0; 3]
+                    };
                     // Occlusion and smooth light from the cells in front of each corner.
                     let nf = n.as_vec3();
                     let mut lights = [[0.0; 2]; 4];
@@ -739,7 +1215,11 @@ fn station_solid(s: &crate::station::Station, light: &crate::station::Light) -> 
                             (a + x as f32, b + y as f32)
                         });
                         lights[i] = [light::brightness(sky / k), light::glow(glow / k)];
-                        if s1 && s2 { 3 } else { s1 as usize + s2 as usize + corner as usize }
+                        if s1 && s2 {
+                            3
+                        } else {
+                            s1 as usize + s2 as usize + corner as usize
+                        }
                     });
                     let colors = ao.map(|o| color.map(|x| x * shade * jitter * AO[o]));
                     m.quad(q, uv, nf, colors, lights, ao[0] + ao[2] > ao[1] + ao[3]);
@@ -747,20 +1227,49 @@ fn station_solid(s: &crate::station::Station, light: &crate::station::Light) -> 
             }
             Shape::Cross => {
                 let center = base + Vec3::splat(0.5);
-                let color = if block::tinted(b) { tint([1.0; 3], center, seed) } else { [1.0; 3] };
+                let color = if block::tinted(b) {
+                    tint([1.0; 3], center, seed)
+                } else {
+                    [1.0; 3]
+                };
                 let t = block::tiles(b)[1];
-                let uv = [tile::uv(t, 0.0, 1.0), tile::uv(t, 1.0, 1.0), tile::uv(t, 1.0, 0.0), tile::uv(t, 0.0, 0.0)];
+                let uv = [
+                    tile::uv(t, 0.0, 1.0),
+                    tile::uv(t, 1.0, 1.0),
+                    tile::uv(t, 1.0, 0.0),
+                    tile::uv(t, 0.0, 0.0),
+                ];
                 let (a, z) = (0.15, 0.85);
                 for (x0, z0, x1, z1) in [(a, a, z, z), (z, a, a, z)] {
-                    let q = [base + Vec3::new(x0, 0.0, z0), base + Vec3::new(x1, 0.0, z1), base + Vec3::new(x1, 1.0, z1), base + Vec3::new(x0, 1.0, z0)];
+                    let q = [
+                        base + Vec3::new(x0, 0.0, z0),
+                        base + Vec3::new(x1, 0.0, z1),
+                        base + Vec3::new(x1, 1.0, z1),
+                        base + Vec3::new(x0, 1.0, z0),
+                    ];
                     m.double_quad(q, uv, Vec3::Y, color, lit(p));
                 }
             }
             Shape::Boxes => {
-                let open = [IVec3::NEG_X, IVec3::X, IVec3::NEG_Z, IVec3::Z, IVec3::NEG_Y, IVec3::Y].map(|d| !block::opaque(s.get(p + d)));
+                let open = [
+                    IVec3::NEG_X,
+                    IVec3::X,
+                    IVec3::NEG_Z,
+                    IVec3::Z,
+                    IVec3::NEG_Y,
+                    IVec3::Y,
+                ]
+                .map(|d| !block::opaque(s.get(p + d)));
                 let pos = |u: f32, v: f32, w: f32| base + Vec3::new(u, w, v);
                 let join = crate::shape::joined(s, p);
-                emit_boxes(&mut m, block::tiles(b), crate::shape::boxes(b, join), &pos, lit(p), open);
+                emit_boxes(
+                    &mut m,
+                    block::tiles(b),
+                    crate::shape::boxes(b, join),
+                    &pos,
+                    lit(p),
+                    open,
+                );
             }
             Shape::Torch => {
                 let t = block::tiles(b)[1];
@@ -781,13 +1290,63 @@ fn station_solid(s: &crate::station::Station, light: &crate::station::Light) -> 
                     }
                     m.quad(q, uv, n, [[1.0; 3]; 4], [l; 4], false);
                 };
-                let side = [tile::uv(t, lo, 1.0), tile::uv(t, hi, 1.0), tile::uv(t, hi, 1.0 - top), tile::uv(t, lo, 1.0 - top)];
-                face([at(lo, 0.0, lo), at(hi, 0.0, lo), at(hi, top, lo), at(lo, top, lo)], side);
-                face([at(lo, 0.0, hi), at(hi, 0.0, hi), at(hi, top, hi), at(lo, top, hi)], side);
-                face([at(lo, 0.0, lo), at(lo, 0.0, hi), at(lo, top, hi), at(lo, top, lo)], side);
-                face([at(hi, 0.0, lo), at(hi, 0.0, hi), at(hi, top, hi), at(hi, top, lo)], side);
-                let tip = [tile::uv(t, lo, 1.0 - top), tile::uv(t, hi, 1.0 - top), tile::uv(t, hi, 1.0 - top + 2.0 / 16.0), tile::uv(t, lo, 1.0 - top + 2.0 / 16.0)];
-                face([at(lo, top, lo), at(hi, top, lo), at(hi, top, hi), at(lo, top, hi)], tip);
+                let side = [
+                    tile::uv(t, lo, 1.0),
+                    tile::uv(t, hi, 1.0),
+                    tile::uv(t, hi, 1.0 - top),
+                    tile::uv(t, lo, 1.0 - top),
+                ];
+                face(
+                    [
+                        at(lo, 0.0, lo),
+                        at(hi, 0.0, lo),
+                        at(hi, top, lo),
+                        at(lo, top, lo),
+                    ],
+                    side,
+                );
+                face(
+                    [
+                        at(lo, 0.0, hi),
+                        at(hi, 0.0, hi),
+                        at(hi, top, hi),
+                        at(lo, top, hi),
+                    ],
+                    side,
+                );
+                face(
+                    [
+                        at(lo, 0.0, lo),
+                        at(lo, 0.0, hi),
+                        at(lo, top, hi),
+                        at(lo, top, lo),
+                    ],
+                    side,
+                );
+                face(
+                    [
+                        at(hi, 0.0, lo),
+                        at(hi, 0.0, hi),
+                        at(hi, top, hi),
+                        at(hi, top, lo),
+                    ],
+                    side,
+                );
+                let tip = [
+                    tile::uv(t, lo, 1.0 - top),
+                    tile::uv(t, hi, 1.0 - top),
+                    tile::uv(t, hi, 1.0 - top + 2.0 / 16.0),
+                    tile::uv(t, lo, 1.0 - top + 2.0 / 16.0),
+                ];
+                face(
+                    [
+                        at(lo, top, lo),
+                        at(hi, top, lo),
+                        at(hi, top, hi),
+                        at(lo, top, hi),
+                    ],
+                    tip,
+                );
             }
         }
     }
@@ -811,10 +1370,18 @@ mod station_tests {
             for t in mesh.indices.chunks(3) {
                 let [a, b, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(mesh.positions[i as usize]));
                 let n = Vec3::from(mesh.normals[t[0] as usize]);
-                assert!((b - a).cross(c - a).normalize().dot(n) > 0.99, "a triangle winds against its normal");
+                assert!(
+                    (b - a).cross(c - a).normalize().dot(n) > 0.99,
+                    "a triangle winds against its normal"
+                );
             }
             // The top: its normal points up.
-            let tops = mesh.normals.iter().zip(&mesh.positions).filter(|(n, p)| n[1] > 0.9 && p[1] > 1.0 && p[1] < 1.5).count();
+            let tops = mesh
+                .normals
+                .iter()
+                .zip(&mesh.positions)
+                .filter(|(n, p)| n[1] > 0.9 && p[1] > 1.0 && p[1] < 1.5)
+                .count();
             assert!(tops >= 4, "no upward top face");
         }
     }
@@ -828,7 +1395,10 @@ mod station_tests {
         for t in m.indices.chunks(3) {
             let [a, b, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(m.positions[i as usize]));
             let n = Vec3::from(m.normals[t[0] as usize]);
-            assert!((b - a).cross(c - a).normalize().dot(n) > 0.99, "a triangle winds against its normal");
+            assert!(
+                (b - a).cross(c - a).normalize().dot(n) > 0.99,
+                "a triangle winds against its normal"
+            );
         }
     }
 }

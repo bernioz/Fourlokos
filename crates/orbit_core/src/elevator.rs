@@ -23,9 +23,9 @@
 
 use crate::block;
 use crate::planet::{ChunkKey, Planet};
-use crate::player::{gravity_at, Pull, GRAVITY};
+use crate::player::{GRAVITY, Pull, gravity_at};
 use crate::sphere::{CellId, CubeSphere};
-use crate::station::{Station, LANE};
+use crate::station::{LANE, Station};
 use glam::{DMat3, DQuat, DVec3, IVec3, Vec3};
 
 /// The ribbon's cross-section, blocks: a flat band, wide across the cabin's back.
@@ -76,13 +76,22 @@ pub fn apparent_gravity(r: f32, pull: Pull, spin: f32) -> f32 {
 pub fn weight_per_density(lo: f32, hi: f32, pull: Pull, spin: f32) -> f64 {
     let n = 2000;
     let dr = (hi - lo) as f64 / n as f64;
-    (0..n).map(|i| apparent_gravity(lo + (i as f64 + 0.5) as f32 * dr as f32, pull, spin) as f64 * dr).sum()
+    (0..n)
+        .map(|i| apparent_gravity(lo + (i as f64 + 0.5) as f32 * dr as f32, pull, spin) as f64 * dr)
+        .sum()
 }
 
 /// The counterweight (kg) at radius `top` that holds a ribbon from `ground` up to it, `density`
 /// kg/block, taut with `anchor` newtons (kg·blocks/s²) at the ground. None if `top` is not past
 /// the synchronous orbit (there it pulls inward and holds nothing up).
-pub fn counterweight_mass(ground: f32, top: f32, pull: Pull, spin: f32, density: f64, anchor: f64) -> Option<f64> {
+pub fn counterweight_mass(
+    ground: f32,
+    top: f32,
+    pull: Pull,
+    spin: f32,
+    density: f64,
+    anchor: f64,
+) -> Option<f64> {
     let out = -apparent_gravity(top, pull, spin) as f64;
     (out > 1e-9).then(|| (density * weight_per_density(ground, top, pull, spin) + anchor) / out)
 }
@@ -91,7 +100,8 @@ pub fn counterweight_mass(ground: f32, top: f32, pull: Pull, spin: f32, density:
 /// inside the pull and clear of the moons' bands (`moons`: radii they sweep). None if there is
 /// no room even for `COUNTERWEIGHT_MIN`.
 pub fn counterweight_radius(sync: f32, pull: Pull, moons: &[(f32, f32)]) -> Option<f32> {
-    let mut top = (sync + COUNTERWEIGHT_ABOVE).min(pull.soi - pull.taper() - 2.0 * crate::station::CLEAR);
+    let mut top =
+        (sync + COUNTERWEIGHT_ABOVE).min(pull.soi - pull.taper() - 2.0 * crate::station::CLEAR);
     for &(lo, _) in moons.iter().filter(|m| m.1 > sync) {
         top = top.min(lo - 2.0 * crate::station::CLEAR);
     }
@@ -105,7 +115,9 @@ pub fn front_dir(k: u8) -> Vec3 {
 
 /// The side (0..4, see `front_dir`) nearest a horizontal direction.
 pub fn front_of(dir: Vec3) -> u8 {
-    (0..4u8).max_by(|&a, &b| front_dir(a).dot(dir).total_cmp(&front_dir(b).dot(dir))).unwrap()
+    (0..4u8)
+        .max_by(|&a, &b| front_dir(a).dot(dir).total_cmp(&front_dir(b).dot(dir)))
+        .unwrap()
 }
 
 /// An elevator: which station it hangs from (one each), where it stands, and where its cabin is.
@@ -140,7 +152,12 @@ impl Elevator {
         out.extend((self.station.len() as u32).to_le_bytes());
         out.extend(self.station.as_bytes());
         out.extend(self.planet.to_le_bytes());
-        for v in self.anchor.to_array().into_iter().chain(self.ribbon.to_array()) {
+        for v in self
+            .anchor
+            .to_array()
+            .into_iter()
+            .chain(self.ribbon.to_array())
+        {
             out.extend(v.to_le_bytes());
         }
         out.push(self.front);
@@ -167,8 +184,17 @@ impl Elevator {
         }
         let front = take(1)?[0] % 4;
         let at_top = take(1)?[0] == 1;
-        let anchor = Vec3::new(v[0], v[1], v[2]).try_normalize().ok_or("Bad anchor")?;
-        Ok(Self { station, planet, anchor, ribbon: Vec3::new(v[3], v[4], v[5]), front, at_top })
+        let anchor = Vec3::new(v[0], v[1], v[2])
+            .try_normalize()
+            .ok_or("Bad anchor")?;
+        Ok(Self {
+            station,
+            planet,
+            anchor,
+            ribbon: Vec3::new(v[3], v[4], v[5]),
+            front,
+            at_top,
+        })
     }
 }
 
@@ -186,7 +212,12 @@ pub fn shaft(dock: Vec3, front: Vec3, down: Vec3, bottom: i32) -> Vec<IVec3> {
         let at = dock + down * (floor as f32 - (y as f32 + 0.5));
         let mut lo = Vec3::splat(f32::MAX);
         let mut hi = Vec3::splat(f32::MIN);
-        for (sx, sz) in [(-1.0, -CABIN_FRONT), (1.0, -CABIN_FRONT), (-1.0, CABIN_BACK), (1.0, CABIN_BACK)] {
+        for (sx, sz) in [
+            (-1.0, -CABIN_FRONT),
+            (1.0, -CABIN_FRONT),
+            (-1.0, CABIN_BACK),
+            (1.0, CABIN_BACK),
+        ] {
             // Model -z is the front.
             let p = at + side * sx * (CABIN_HALF_X + 0.15) - front * sz * 1.05;
             lo = lo.min(p);
@@ -207,7 +238,12 @@ pub fn cabin_room(dock: Vec3, front: Vec3) -> Vec<IVec3> {
     let floor = (dock.y + CABIN_FLOOR).round() as i32;
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
-    for (sx, sz) in [(-1.0, -CABIN_FRONT), (1.0, -CABIN_FRONT), (-1.0, CABIN_BACK), (1.0, CABIN_BACK)] {
+    for (sx, sz) in [
+        (-1.0, -CABIN_FRONT),
+        (1.0, -CABIN_FRONT),
+        (-1.0, CABIN_BACK),
+        (1.0, CABIN_BACK),
+    ] {
         let p = dock + side * sx * CABIN_HALF_X - front * sz;
         lo = lo.min(p);
         hi = hi.max(p);
@@ -230,7 +266,15 @@ pub fn cabin_room(dock: Vec3, front: Vec3) -> Vec<IVec3> {
 /// up so the ribbon's point on its deck (`ribbon`, station-local) is in that plane too, and
 /// moved along the lane so that point is straight over the anchor. `o` is the orbit now (its
 /// planet, and its turn to keep its heading as near as it can), `t` the time it holds from.
-pub fn hold(o: &crate::station::StationOrbit, ribbon: Vec3, anchor: DVec3, axis: DVec3, spin: f64, sync: f64, t: f64) -> crate::station::StationOrbit {
+pub fn hold(
+    o: &crate::station::StationOrbit,
+    ribbon: Vec3,
+    anchor: DVec3,
+    axis: DVec3,
+    spin: f64,
+    sync: f64,
+    t: f64,
+) -> crate::station::StationOrbit {
     let n = axis.normalize() * spin.signum();
     let a = anchor.reject_from(axis).normalize();
     let d = ribbon.as_dvec3();
@@ -240,20 +284,37 @@ pub fn hold(o: &crate::station::StationOrbit, ribbon: Vec3, anchor: DVec3, axis:
     let turn0 = now.turn;
     let (start, turn) = if h < 1e-6 {
         let up = a;
-        (up * sync, (DQuat::from_rotation_arc(turn0 * DVec3::Y, up) * turn0).normalize())
+        (
+            up * sync,
+            (DQuat::from_rotation_arc(turn0 * DVec3::Y, up) * turn0).normalize(),
+        )
     } else {
         // Which way along the lane the ribbon point lies from the origin: the side its heading
         // is on now, so the station turns as little as it can.
         let ahead = n.cross(a);
-        let sigma = if (turn0 * (flat / h)).dot(ahead) >= 0.0 { 1.0 } else { -1.0 };
+        let sigma = if (turn0 * (flat / h)).dot(ahead) >= 0.0 {
+            1.0
+        } else {
+            -1.0
+        };
         let phi = h.atan2(sync + d.y);
         let up = DQuat::from_axis_angle(n, -sigma * phi) * a;
         let along = n.cross(up) * sigma;
         let local = DMat3::from_cols(flat / h, DVec3::Y, (flat / h).cross(DVec3::Y));
         let world = DMat3::from_cols(along, up, along.cross(up));
-        (up * sync, DQuat::from_mat3(&(world * local.transpose())).normalize())
+        (
+            up * sync,
+            DQuat::from_mat3(&(world * local.transpose())).normalize(),
+        )
     };
-    crate::station::StationOrbit { planet: o.planet, start, turn, axis: n, rate: spin.abs(), t0: t }
+    crate::station::StationOrbit {
+        planet: o.planet,
+        start,
+        turn,
+        axis: n,
+        rate: spin.abs(),
+        t0: t,
+    }
 }
 
 /// Where the cabin is on its ribbon, and how it moves: `h` the height of its origin (its bottom)
@@ -270,7 +331,12 @@ pub struct Climb {
 impl Climb {
     /// At rest at one end.
     pub fn resting(h: f64, up: bool) -> Self {
-        Self { h, v: 0.0, up, moving: false }
+        Self {
+            h,
+            v: 0.0,
+            up,
+            moving: false,
+        }
     }
 
     /// Sets off toward the station (`up`) or the ground; a cabin under way turns round.
@@ -351,14 +417,26 @@ const BASE_FILL: usize = 4;
 
 /// Ground for the platform to sit on: solid, and not part of a tree.
 fn is_ground(b: block::Block) -> bool {
-    block::is_solid(b) && !matches!(b, block::LEAVES | block::BIRCH_LEAVES | block::PINE_LEAVES | block::ACACIA_LEAVES | block::WOOD | block::BIRCH_LOG | block::CACTUS)
+    block::is_solid(b)
+        && !matches!(
+            b,
+            block::LEAVES
+                | block::BIRCH_LEAVES
+                | block::PINE_LEAVES
+                | block::ACACIA_LEAVES
+                | block::WOOD
+                | block::BIRCH_LOG
+                | block::CACTUS
+        )
 }
 
 /// The layer of the ground's top block in the column under `dir` (planet-local), trees aside.
 pub fn surface_layer(planet: &Planet, dir: Vec3) -> Option<usize> {
     let g = &planet.grid;
     let (f, i, j) = g.column_at(dir);
-    (0..g.layers).rev().find(|&k| is_ground(planet.get(g.index(f, i, j, k))))
+    (0..g.layers)
+        .rev()
+        .find(|&k| is_ground(planet.get(g.index(f, i, j, k))))
 }
 
 /// The columns of the platform round `center` (planet-local direction, the docked cabin's
@@ -372,7 +450,11 @@ pub fn base_cells(g: &CubeSphere, center: Vec3, k: usize) -> Vec<(CellId, bool)>
     let mut cells = Vec::new();
     for di in -reach..=reach {
         for dj in -reach..=reach {
-            let Some(cell) = g.cell_on_face(face, a.floor() as i64 + di, b.floor() as i64 + dj, k as i64) else { continue };
+            let Some(cell) =
+                g.cell_on_face(face, a.floor() as i64 + di, b.floor() as i64 + dj, k as i64)
+            else {
+                continue;
+            };
             // How far its middle is from the platform's, along the ground.
             let d = (g.center(cell).normalize() - c).length() * r;
             if d <= BASE_RADIUS && !cells.iter().any(|&(x, _)| x == cell) {
@@ -399,14 +481,24 @@ pub fn lay_base(planet: &mut Planet, center: Vec3, k: usize) -> Vec<ChunkKey> {
     };
     for (cell, rim) in base_cells(&planet.grid, center, k) {
         let (f, i, j, _) = planet.grid.coords(cell);
-        let at = |planet: &Planet, kk: usize| (kk < planet.grid.layers).then(|| planet.grid.index(f, i, j, kk));
+        let at = |planet: &Planet, kk: usize| {
+            (kk < planet.grid.layers).then(|| planet.grid.index(f, i, j, kk))
+        };
         // From the top down, so nothing is left standing on air.
         for kk in (k + 1..=k + BASE_CLEAR).rev() {
             if let Some(c) = at(planet, kk) {
                 put(planet, c, block::AIR);
             }
         }
-        put(planet, cell, if rim { block::ELEVATOR_EDGE } else { block::ELEVATOR_BASE });
+        put(
+            planet,
+            cell,
+            if rim {
+                block::ELEVATOR_EDGE
+            } else {
+                block::ELEVATOR_BASE
+            },
+        );
         for kk in k.saturating_sub(BASE_FILL)..k {
             if let Some(c) = at(planet, kk).filter(|&c| !block::is_solid(planet.get(c))) {
                 put(planet, c, block::STONE);
@@ -436,7 +528,14 @@ pub fn terminal(id: String, name: &str) -> Station {
                 s.set(IVec3::new(x, y, z), b);
             };
             if d <= 9.5 {
-                put(0, if d > 8.5 { block::SMOOTH_STONE } else { block::HULL });
+                put(
+                    0,
+                    if d > 8.5 {
+                        block::SMOOTH_STONE
+                    } else {
+                        block::HULL
+                    },
+                );
             }
             if d <= 8.0 {
                 put(-1, block::SMOOTH_STONE);
@@ -474,7 +573,7 @@ pub fn terminal(id: String, name: &str) -> Station {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::station::{sync_radius, StationOrbit};
+    use crate::station::{StationOrbit, sync_radius};
     use glam::Quat;
 
     const GR: f32 = 280.0;
@@ -482,14 +581,27 @@ mod tests {
     #[test]
     fn the_terminal_has_room_for_the_cabin_and_its_door_and_a_ready_pad() {
         let s = terminal("t".into(), "T");
-        let e = Elevator { station: "t".into(), planet: 1, anchor: Vec3::X, ribbon: TERMINAL_FEET - front_dir(TERMINAL_FRONT) * CABIN_RIBBON_BACK, front: TERMINAL_FRONT, at_top: true };
-        let room: Vec<IVec3> = cabin_room(e.dock(), front_dir(e.front)).into_iter().filter(|&c| s.solid(c)).collect();
+        let e = Elevator {
+            station: "t".into(),
+            planet: 1,
+            anchor: Vec3::X,
+            ribbon: TERMINAL_FEET - front_dir(TERMINAL_FRONT) * CABIN_RIBBON_BACK,
+            front: TERMINAL_FRONT,
+            at_top: true,
+        };
+        let room: Vec<IVec3> = cabin_room(e.dock(), front_dir(e.front))
+            .into_iter()
+            .filter(|&c| s.solid(c))
+            .collect();
         assert!(room.is_empty(), "blocks where the cabin stands: {room:?}");
         // Out of the door: deck underneath, room to stand.
         let back = -front_dir(e.front);
         let door = e.dock() + Vec3::Y.cross(back) * DOOR_OUT.x + Vec3::Y * DOOR_OUT.y;
         let cell = Station::cell_at(door);
-        assert!(s.solid(cell - IVec3::Y) && !s.solid(cell) && !s.solid(cell + IVec3::Y), "door {door:?}");
+        assert!(
+            s.solid(cell - IVec3::Y) && !s.solid(cell) && !s.solid(cell + IVec3::Y),
+            "door {door:?}"
+        );
         assert_eq!(s.get(IVec3::ZERO), block::STATION_CORE);
         assert_eq!(s.get(IVec3::new(-5, 0, 0)), block::PAD_READY);
         // The ribbon goes past the deck's edge, clear of the core.
@@ -502,9 +614,17 @@ mod tests {
         let center = Vec3::new(0.3, 0.1, 1.0).normalize();
         let cells = base_cells(&g, center, 60);
         let area = std::f32::consts::PI * BASE_RADIUS * BASE_RADIUS;
-        assert!((cells.len() as f32 - area).abs() < area * 0.25, "{} cells for {area}", cells.len());
+        assert!(
+            (cells.len() as f32 - area).abs() < area * 0.25,
+            "{} cells for {area}",
+            cells.len()
+        );
         let rim = cells.iter().filter(|c| c.1).count();
-        assert!(rim > 12 && rim < cells.len() / 2, "rim {rim} of {}", cells.len());
+        assert!(
+            rim > 12 && rim < cells.len() / 2,
+            "rim {rim} of {}",
+            cells.len()
+        );
         let r = g.radius(60) + 0.5;
         for (c, _) in cells {
             assert!((g.center(c).normalize() - center).length() * r <= BASE_RADIUS + 1e-3);
@@ -524,7 +644,14 @@ mod tests {
         // An anchor on the equator, and a station somewhere else in an inclined orbit.
         let anchor_local = axis.any_orthonormal_vector();
         let at = Vec3::new(GR + 90.0, 40.0, 0.0);
-        let o = StationOrbit::through(1, at, Quat::from_rotation_arc(Vec3::Y, at.normalize()), Vec3::Z, Pull::planet(GR), 3.0);
+        let o = StationOrbit::through(
+            1,
+            at,
+            Quat::from_rotation_arc(Vec3::Y, at.normalize()),
+            Vec3::Z,
+            Pull::planet(GR),
+            3.0,
+        );
         let ribbon = Vec3::new(12.5, 1.0, -7.0);
         let t0 = 50.0;
         let held = hold(&o, ribbon, planet(t0) * anchor_local, axis, w, sync, t0);
@@ -533,7 +660,11 @@ mod tests {
             let p = held.offset(t) + (held.rotation(t) * ribbon).as_dvec3();
             let a = planet(t) * anchor_local;
             // Straight over the anchor, in the equator's plane.
-            assert!(p.normalize().distance(a) * p.length() < 1e-2, "{:.4} off at t = {t}", p.normalize().distance(a) * p.length());
+            assert!(
+                p.normalize().distance(a) * p.length() < 1e-2,
+                "{:.4} off at t = {t}",
+                p.normalize().distance(a) * p.length()
+            );
             assert!(p.dot(axis).abs() < 1e-2);
             // Floor toward the planet.
             let up = held.rotation(t) * Vec3::Y;
@@ -566,13 +697,19 @@ mod tests {
     fn the_counterweight_stays_clear_of_moons_and_the_pulls_edge() {
         let pull = Pull::planet(GR);
         let sync = sync_radius(GR, spin()).unwrap();
-        assert_eq!(counterweight_radius(sync, pull, &[]), Some(sync + COUNTERWEIGHT_ABOVE));
+        assert_eq!(
+            counterweight_radius(sync, pull, &[]),
+            Some(sync + COUNTERWEIGHT_ABOVE)
+        );
         let moon = (sync + 200.0, sync + 600.0);
         let r = counterweight_radius(sync, pull, &[moon]).unwrap();
         assert!(r < moon.0 && r >= sync + COUNTERWEIGHT_MIN);
         assert!(counterweight_radius(sync, pull, &[(sync + 50.0, sync + 400.0)]).is_none());
         // Moons below do not matter (lanes and the synchronous orbit already keep clear of them).
-        assert_eq!(counterweight_radius(sync, pull, &[(400.0, 900.0)]), Some(sync + COUNTERWEIGHT_ABOVE));
+        assert_eq!(
+            counterweight_radius(sync, pull, &[(400.0, 900.0)]),
+            Some(sync + COUNTERWEIGHT_ABOVE)
+        );
     }
 
     #[test]
@@ -589,9 +726,20 @@ mod tests {
             t += dt;
             assert!(c.h >= bottom - 1e-9 && c.h <= top + 1e-9);
             // (arriving, it stops from under a block a second: no jolt either)
-            assert!(arrived && last_v.abs() < 1.0 || (c.v - last_v).abs() <= ACCEL * dt + 1e-9, "a jolt at h = {} (v {} -> {})", c.h, last_v, c.v);
+            assert!(
+                arrived && last_v.abs() < 1.0 || (c.v - last_v).abs() <= ACCEL * dt + 1e-9,
+                "a jolt at h = {} (v {} -> {})",
+                c.h,
+                last_v,
+                c.v
+            );
             if c.h < air - 1.0 {
-                assert!(c.v <= AIR_SPEED + 1e-9, "too fast in the air: {} at {}", c.v, c.h);
+                assert!(
+                    c.v <= AIR_SPEED + 1e-9,
+                    "too fast in the air: {} at {}",
+                    c.v,
+                    c.h
+                );
             }
             fastest = fastest.max(c.v);
             last_v = c.v;
@@ -650,7 +798,14 @@ mod tests {
 
     #[test]
     fn saves_and_loads() {
-        let e = Elevator { station: "0a1b2c3d".into(), planet: 77, anchor: Vec3::new(0.6, 0.0, 0.8), ribbon: Vec3::new(0.5, 1.0, 2.14), front: 2, at_top: true };
+        let e = Elevator {
+            station: "0a1b2c3d".into(),
+            planet: 77,
+            anchor: Vec3::new(0.6, 0.0, 0.8),
+            ribbon: Vec3::new(0.5, 1.0, 2.14),
+            front: 2,
+            at_top: true,
+        };
         assert_eq!(Elevator::from_bytes(&e.to_bytes()).unwrap(), e);
         assert!(Elevator::from_bytes(&e.to_bytes()[..12]).is_err());
         assert!(Elevator::from_bytes(b"OBSTAT01xxxx").is_err());
@@ -661,13 +816,25 @@ mod tests {
         // A cabin docked on the starter slab, facing +z, its ribbon between it and the core.
         let front = front_dir(2);
         let ribbon = Vec3::new(0.5, 1.0, 3.5 - CABIN_RIBBON_BACK);
-        let e = Elevator { station: String::new(), planet: 0, anchor: Vec3::X, ribbon, front: 2, at_top: true };
+        let e = Elevator {
+            station: String::new(),
+            planet: 0,
+            anchor: Vec3::X,
+            ribbon,
+            front: 2,
+            at_top: true,
+        };
         let dock = e.dock();
         assert!((dock - Vec3::new(0.5, 1.0 - CABIN_FLOOR, 3.5)).length() < 1e-5);
         let cells = shaft(dock, front, Vec3::NEG_Y, crate::station::MIN_Y);
         assert!(!cells.contains(&IVec3::ZERO), "the core stays");
         // The deck under the cabin is open, the slab around it not.
-        for p in [IVec3::new(0, 0, 3), IVec3::new(-1, 0, 2), IVec3::new(2, 0, 4), IVec3::new(0, crate::station::MIN_Y, 3)] {
+        for p in [
+            IVec3::new(0, 0, 3),
+            IVec3::new(-1, 0, 2),
+            IVec3::new(2, 0, 4),
+            IVec3::new(0, crate::station::MIN_Y, 3),
+        ] {
             assert!(cells.contains(&p), "{p}");
         }
         assert!(!cells.contains(&IVec3::new(0, 0, -2)) && !cells.contains(&IVec3::new(4, 0, 3)));

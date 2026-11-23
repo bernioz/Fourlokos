@@ -23,12 +23,22 @@ Reply in the human's language. Keep each message short: what you did, what you n
 
 ## 0. Environment check
 
-Run `python SKILL_DIR/scripts/voxel_doctor.py`. If `ok` is false, tell the human each failing check's
-`fix` line and stop until they say it is fixed. Common fixes:
-- `openai_api_key` / `openai_image_model` → they set `OPENAI_API_KEY` as the README says (then open a new terminal).
-- `blockbench_mcp` → open Blockbench **desktop** with the MCP plugin loaded (README). If the MCP tools are
-  missing from your session, ask them to reconnect the MCP server in their agent (`/mcp` in Claude Code;
-  restart the Codex session) — the project already declares it in `.mcp.json` and `.codex/config.toml`.
+Run `python SKILL_DIR/scripts/voxel_doctor.py`. It prints `ok`, `ready_for` (`reference` = steps 1-3 need only
+the OpenAI key; `build` = step 6+ also needs Blockbench) and one entry per check with a `stage`, `detail` and `fix`.
+
+**Diagnose before you ask the human to do anything.** A failing check is a symptom; confirm the cause yourself:
+- `openai_api_key` fails → run `test -n "$OPENAI_API_KEY" && echo set` in your own shell (fish: `; and`). If the
+  human says it is set in their terminal but you don't see it, the agent is not inheriting it (Codex drops
+  `*KEY*` variables by default): tell them that, with the `fix` line, instead of asking them to set it again.
+- `blockbench_mcp` fails → `detail` says why: `refused` = Blockbench closed or plugin not loaded; `blocked` =
+  your sandbox denies the connection (fix is in the agent config, not in Blockbench); `unreachable` = wrong
+  port/URL. Check `curl -s http://localhost:3000/bb-mcp` and `codex mcp list` / `/mcp` before blaming the human.
+
+**Do not stop for what you don't need yet.** If `ready_for.reference` is true, go on with steps 1-3 and ask for
+Blockbench only before step 6. Otherwise give the human each failing check's `fix` line (one message) and wait.
+If the MCP tools are missing from your session even though the port answers, ask them to reconnect the MCP
+server (`/mcp` in Claude Code; restart the Codex session) — the project declares it in `.mcp.json` and
+`.codex/config.toml`.
 
 ## 1. Generate the reference
 

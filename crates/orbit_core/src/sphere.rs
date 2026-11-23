@@ -17,7 +17,14 @@ pub enum Side {
 }
 
 impl Side {
-    pub const ALL: [Side; 6] = [Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus, Side::Bottom, Side::Top];
+    pub const ALL: [Side; 6] = [
+        Side::IMinus,
+        Side::IPlus,
+        Side::JMinus,
+        Side::JPlus,
+        Side::Bottom,
+        Side::Top,
+    ];
 }
 
 /// Per face: normal N, then U and V with U × V = N.
@@ -55,7 +62,12 @@ impl CubeSphere {
                 }
             }
         }
-        Self { n, core, layers, dirs }
+        Self {
+            n,
+            core,
+            layers,
+            dirs,
+        }
     }
 
     pub fn cell_count(&self) -> usize {
@@ -92,13 +104,20 @@ impl CubeSphere {
     /// directions blend across the column, the radius runs through the layer.
     pub fn point(&self, c: CellId, u: f32, v: f32, w: f32) -> Vec3 {
         let (f, i, j, k) = self.coords(c);
-        let d = self.dir(f, i, j) * (1.0 - u) * (1.0 - v) + self.dir(f, i + 1, j) * u * (1.0 - v) + self.dir(f, i, j + 1) * (1.0 - u) * v + self.dir(f, i + 1, j + 1) * u * v;
+        let d = self.dir(f, i, j) * (1.0 - u) * (1.0 - v)
+            + self.dir(f, i + 1, j) * u * (1.0 - v)
+            + self.dir(f, i, j + 1) * (1.0 - u) * v
+            + self.dir(f, i + 1, j + 1) * u * v;
         d.normalize() * (self.radius(k) + w)
     }
 
     pub fn center(&self, c: CellId) -> Vec3 {
         let (f, i, j, k) = self.coords(c);
-        let d = (self.dir(f, i, j) + self.dir(f, i + 1, j) + self.dir(f, i, j + 1) + self.dir(f, i + 1, j + 1)).normalize();
+        let d = (self.dir(f, i, j)
+            + self.dir(f, i + 1, j)
+            + self.dir(f, i, j + 1)
+            + self.dir(f, i + 1, j + 1))
+        .normalize();
         d * (self.radius(k) + 0.5)
     }
 
@@ -127,12 +146,18 @@ impl CubeSphere {
             }
         }
         let b = BASIS[face];
-        (face, grid(self.n, v(b[1]).dot(p) / best), grid(self.n, v(b[2]).dot(p) / best))
+        (
+            face,
+            grid(self.n, v(b[1]).dot(p) / best),
+            grid(self.n, v(b[2]).dot(p) / best),
+        )
     }
 
     /// Face whose square a planet-local direction points through.
     pub fn face_of(&self, p: DVec3) -> usize {
-        (0..6).max_by(|&a, &b| v(BASIS[a][0]).dot(p).total_cmp(&v(BASIS[b][0]).dot(p))).unwrap()
+        (0..6)
+            .max_by(|&a, &b| v(BASIS[a][0]).dot(p).total_cmp(&v(BASIS[b][0]).dot(p)))
+            .unwrap()
     }
 
     /// Continuous grid coordinates (a, b) of a planet-local point on `face`: the point lies in
@@ -141,7 +166,10 @@ impl CubeSphere {
     pub fn face_coords(&self, face: usize, p: DVec3) -> (f64, f64) {
         let b = BASIS[face];
         let d = v(b[0]).dot(p);
-        (grid_coord(self.n, v(b[1]).dot(p) / d), grid_coord(self.n, v(b[2]).dot(p) / d))
+        (
+            grid_coord(self.n, v(b[1]).dot(p) / d),
+            grid_coord(self.n, v(b[2]).dot(p) / d),
+        )
     }
 
     /// The point at grid coordinates (a, b) on `face` and radius r; inverse of `face_coords`.
@@ -160,7 +188,12 @@ impl CubeSphere {
         if (0..n).contains(&i) && (0..n).contains(&j) {
             return Some(self.index(face, i as usize, j as usize, k as usize));
         }
-        let c = self.face_point(face, i as f64 + 0.5, j as f64 + 0.5, self.radius(k as usize) as f64 + 0.5);
+        let c = self.face_point(
+            face,
+            i as f64 + 0.5,
+            j as f64 + 0.5,
+            self.radius(k as usize) as f64 + 0.5,
+        );
         self.cell_at(c.as_vec3())
     }
 
@@ -262,7 +295,9 @@ mod tests {
         let s = CubeSphere::new(12, 6.0, 3);
         for c in 0..s.cell_count() {
             for side in [Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus] {
-                let nb = s.neighbor(c, side).expect("horizontal neighbor always exists");
+                let nb = s
+                    .neighbor(c, side)
+                    .expect("horizontal neighbor always exists");
                 assert_ne!(nb, c);
                 let back = Side::ALL.iter().any(|&b| s.neighbor(nb, b) == Some(c));
                 assert!(back, "cell {c} side {side:?}");

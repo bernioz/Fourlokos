@@ -1,12 +1,18 @@
 //! The endless universe: space is cut into sectors; about 7 in 10 hold a star system whose
 //! planets are derived from the world seed. Nothing here is stored: same seed, same universe.
 
-use crate::planet::{moon_soi, Biome, Customization, Gen, Host, Orbit, PlanetSpec, Spin, MAX_RADIUS, MIN_RADIUS, MOON_MAX_RADIUS, MOON_MIN_RADIUS};
-use crate::station::{sync_radius, LANE};
-use crate::travel::mu;
+use crate::planet::{
+    Biome, Customization, Gen, Host, MAX_RADIUS, MIN_RADIUS, MOON_MAX_RADIUS, MOON_MIN_RADIUS,
+    Orbit, PlanetSpec, Spin, moon_soi,
+};
 use crate::player::soi;
-use crate::rng::{mix, Rng};
+use crate::rng::{Rng, mix};
+use crate::station::{LANE, sync_radius};
+use crate::travel::mu;
 use glam::{DVec3, IVec3, Quat, Vec3};
+
+/// What the home planet's first moon is called (Tulio lives there).
+pub const MOON_NAME: &str = "Tulio's Moon";
 
 pub const SECTOR: f64 = 288_000.0;
 /// Systems keep this far from their sector's walls, so neighbors never overlap.
@@ -91,7 +97,10 @@ impl WorldGen {
     fn profile(&self, b: Biome) -> Gen {
         // Forest is a column biome of temperate worlds, never a planet type; it shares Meadow's.
         let b = if b == Biome::Forest { Biome::Meadow } else { b };
-        Biome::ALL.iter().position(|&x| x == b).map_or_else(Gen::default, |i| self.profiles[i])
+        Biome::ALL
+            .iter()
+            .position(|&x| x == b)
+            .map_or_else(Gen::default, |i| self.profiles[i])
     }
 }
 
@@ -107,7 +116,10 @@ impl Universe {
     }
 
     pub fn with(seed: u64, make: WorldGen) -> Self {
-        Self { seed, make: make.clamped() }
+        Self {
+            seed,
+            make: make.clamped(),
+        }
     }
 
     pub fn sector_of(p: DVec3) -> IVec3 {
@@ -140,8 +152,17 @@ impl Universe {
         let count = rng.int(g.planets.0 as i64, g.planets.1 as i64) as usize;
         let count = if g.single_planet { 1 } else { count };
         // The planet types that may come up; with all of them the draw is the one it always was.
-        let types: Vec<Biome> = Biome::ALL.iter().zip(g.allowed).filter(|x| x.1).map(|x| *x.0).collect();
-        let types = if types.is_empty() { Biome::ALL.to_vec() } else { types };
+        let types: Vec<Biome> = Biome::ALL
+            .iter()
+            .zip(g.allowed)
+            .filter(|x| x.1)
+            .map(|x| *x.0)
+            .collect();
+        let types = if types.is_empty() {
+            Biome::ALL.to_vec()
+        } else {
+            types
+        };
         let mut planets = Vec::with_capacity(count);
         // Every orbit leaves room for the sphere of influence of the biggest planet a player could
         // customize this one into, so they never overlap, and the first one clears the star by
@@ -154,7 +175,10 @@ impl Universe {
             } else {
                 // Skewed toward the small end: big worlds are the rarer sight.
                 let r = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * rng.f32().powf(1.6);
-                (r.round(), types[rng.int(0, types.len() as i64 - 1) as usize])
+                (
+                    r.round(),
+                    types[rng.int(0, types.len() as i64 - 1) as usize],
+                )
             };
             let id = mix(self.sector_seed(s) ^ idx as u64);
             let mut spec = PlanetSpec::new(id, planet_name(id), radius, biome);
@@ -163,11 +187,21 @@ impl Universe {
             }
             orbit += reach;
             // Concentric orbits, one per planet, so planets never meet. Slow: a few blocks per second.
-            spec.orbit = Orbit { star: center, radius: orbit, phase: rng.range(0.0, std::f32::consts::TAU), speed: rng.range(1.5, 4.0) / orbit * g.orbit_speed, tilt };
+            spec.orbit = Orbit {
+                star: center,
+                radius: orbit,
+                phase: rng.range(0.0, std::f32::consts::TAU),
+                speed: rng.range(1.5, 4.0) / orbit * g.orbit_speed,
+                tilt,
+            };
             // Axial tilt up to ~25°, a day of 5 to 10 minutes (short enough for a synchronous
             // orbit inside the sphere of influence).
             let axis = tilt * (Quat::from_axis_angle(rng.dir(), rng.range(0.0, 0.44)) * Vec3::Y);
-            spec.spin = Spin { axis: axis.normalize(), speed: std::f32::consts::TAU / rng.range(300.0, 600.0) * g.day_speed, phase: rng.range(0.0, std::f32::consts::TAU) };
+            spec.spin = Spin {
+                axis: axis.normalize(),
+                speed: std::f32::consts::TAU / rng.range(300.0, 600.0) * g.day_speed,
+                phase: rng.range(0.0, std::f32::consts::TAU),
+            };
             spec.advance(0.0);
             if home && idx == 0 {
                 if let Some(c) = g.spawn {
@@ -187,20 +221,50 @@ impl Universe {
             let n = match host.radius {
                 _ if home && i == 0 && k == 1.0 => 1,
                 // (A third, or a second on a smaller planet, only when moons are made likelier.)
-                r if r >= 200.0 => (x < 0.8 * k) as usize + (x < 0.35 * k) as usize + (x < 0.1 * (k - 1.0)) as usize,
+                r if r >= 200.0 => {
+                    (x < 0.8 * k) as usize
+                        + (x < 0.35 * k) as usize
+                        + (x < 0.1 * (k - 1.0)) as usize
+                }
                 r if r >= 120.0 => (x < 0.55 * k) as usize + (x < 0.15 * (k - 1.0)) as usize,
                 _ => (x < 0.2 * k) as usize + (x < 0.05 * (k - 1.0)) as usize,
             };
+            // The home planet always has one (unless moons are switched off): Tulio's.
+            let n = if home && i == 0 { n.max(1) } else { n };
             let n = n.min(g.max_moons as usize);
             let mut taken = Vec::new();
             for k in 0..n {
-                if let Some(m) = moon(&host, k, &mut mr, &taken, g) {
-                    taken.push((m.orbit.radius - m.host.unwrap().soi, m.orbit.radius + m.host.unwrap().soi));
+                let mut made = moon(&host, k, &mut mr, &taken, g);
+                if made.is_none() && home && i == 0 && k == 0 {
+                    // The home planet's moon has to exist: tried again from other numbers.
+                    for t in 1..16u64 {
+                        let mut r = Rng::new(mix(self.sector_seed(s) ^ 0x4D00_1000 ^ (t << 20)));
+                        made = moon(&host, k, &mut r, &taken, g);
+                        if made.is_some() {
+                            break;
+                        }
+                    }
+                }
+                if let Some(mut m) = made {
+                    if home && i == 0 && k == 0 {
+                        m.name = MOON_NAME.into();
+                    }
+                    taken.push((
+                        m.orbit.radius - m.host.unwrap().soi,
+                        m.orbit.radius + m.host.unwrap().soi,
+                    ));
                     planets.push(m);
                 }
             }
         }
-        Some(StarSystem { sector: s, name: system_name(self.sector_seed(s), home), center, star_radius, star_color, planets })
+        Some(StarSystem {
+            sector: s,
+            name: system_name(self.sector_seed(s), home),
+            center,
+            star_radius,
+            star_color,
+            planets,
+        })
     }
 
     /// Systems in the cube of sectors within `r` of the sector containing `p`.
@@ -243,14 +307,19 @@ pub fn coast(p: &PlanetSpec) -> Vec3 {
         let (az, d) = (n as f32 * golden, polar);
         let dir = Vec3::new(d.sin() * az.cos(), d.cos(), d.sin() * az.sin());
         let c = terrain.column(dir);
-        if c.is_wet() || !(1..=4).contains(&c.height) || !matches!(c.biome, Biome::Meadow | Biome::Forest) {
+        if c.is_wet()
+            || !(1..=4).contains(&c.height)
+            || !matches!(c.biome, Biome::Meadow | Biome::Forest)
+        {
             continue;
         }
         let t = dir.any_orthonormal_vector();
         let b = dir.cross(t);
         let wet = (0..8).any(|k| {
             let a = k as f32 * std::f32::consts::FRAC_PI_4;
-            terrain.column((dir + (t * a.cos() + b * a.sin()) * step * 2.5).normalize()).is_wet()
+            terrain
+                .column((dir + (t * a.cos() + b * a.sin()) * step * 2.5).normalize())
+                .is_wet()
         });
         if wet {
             return dir;
@@ -263,12 +332,36 @@ pub fn coast(p: &PlanetSpec) -> Vec3 {
 /// equator, tidally locked (one face always toward the planet). Its sphere of influence (where its
 /// pull beats the planet's: its Hill sphere) has to fit inside the planet's with room for station
 /// lanes below it, clear of the planet's synchronous orbit and of the other moons (`taken`).
-fn moon(host: &PlanetSpec, k: usize, rng: &mut Rng, taken: &[(f32, f32)], g: &WorldGen) -> Option<PlanetSpec> {
-    const BIOMES: [Biome; 5] = [Biome::Barren, Biome::Barren, Biome::Frozen, Biome::Crystal, Biome::Desert];
+fn moon(
+    host: &PlanetSpec,
+    k: usize,
+    rng: &mut Rng,
+    taken: &[(f32, f32)],
+    g: &WorldGen,
+) -> Option<PlanetSpec> {
+    const BIOMES: [Biome; 5] = [
+        Biome::Barren,
+        Biome::Barren,
+        Biome::Frozen,
+        Biome::Crystal,
+        Biome::Desert,
+    ];
     let id = mix(host.id ^ 0x4D00_4E00 ^ k as u64);
-    let radius = rng.range(MOON_MIN_RADIUS, MOON_MAX_RADIUS.min(host.radius * 0.5).max(MOON_MIN_RADIUS + 1.0)).round();
+    let radius = rng
+        .range(
+            MOON_MIN_RADIUS,
+            MOON_MAX_RADIUS
+                .min(host.radius * 0.5)
+                .max(MOON_MIN_RADIUS + 1.0),
+        )
+        .round();
     let biome = BIOMES[rng.int(0, BIOMES.len() as i64 - 1) as usize];
-    let mut spec = PlanetSpec::new(id, format!("{} {}", host.name, ["I", "II", "III"][k.min(2)]), radius, biome);
+    let mut spec = PlanetSpec::new(
+        id,
+        format!("{} {}", host.name, ["I", "II", "III"][k.min(2)]),
+        radius,
+        biome,
+    );
     spec.knobs = g.profile(biome);
     let (gm, pull) = (spec.gravity_radius(), host.pull());
     let gp = pull.gravity_radius;
@@ -282,16 +375,35 @@ fn moon(host: &PlanetSpec, k: usize, rng: &mut Rng, taken: &[(f32, f32)], g: &Wo
             && sync.is_none_or(|s| (a - s).abs() > soi_m + 2.0 * LANE)
             && taken.iter().all(|&(lo, hi)| a + soi_m + LANE < lo || a - soi_m - LANE > hi)
     };
-    let heights: Vec<f32> = (0..).map(|i| gp + i as f32 * 10.0).take_while(|&a| a < pull.soi).filter(|&a| fits(a)).collect();
+    let heights: Vec<f32> = (0..)
+        .map(|i| gp + i as f32 * 10.0)
+        .take_while(|&a| a < pull.soi)
+        .filter(|&a| fits(a))
+        .collect();
     if !heights.is_empty() {
         let a = heights[rng.int(0, heights.len() as i64 - 1) as usize];
         let soi_m = moon_soi(a, gm, gp);
         let way = if host.spin.speed < 0.0 { -1.0 } else { 1.0 };
-        let tilt = Quat::from_rotation_arc(Vec3::Y, -host.spin.axis) * Quat::from_rotation_x(rng.range(-0.12, 0.12));
+        let tilt = Quat::from_rotation_arc(Vec3::Y, -host.spin.axis)
+            * Quat::from_rotation_x(rng.range(-0.12, 0.12));
         let speed = way * (mu(gp) / (a * a * a)).sqrt();
-        spec.orbit = Orbit { star: DVec3::ZERO, radius: a, phase: rng.range(0.0, std::f32::consts::TAU), speed, tilt };
-        spec.spin = Spin { axis: spec.orbit.axis(), speed: speed.abs(), phase: 0.0 };
-        spec.host = Some(Host { id: host.id, orbit: host.orbit, soi: soi_m });
+        spec.orbit = Orbit {
+            star: DVec3::ZERO,
+            radius: a,
+            phase: rng.range(0.0, std::f32::consts::TAU),
+            speed,
+            tilt,
+        };
+        spec.spin = Spin {
+            axis: spec.orbit.axis(),
+            speed: speed.abs(),
+            phase: 0.0,
+        };
+        spec.host = Some(Host {
+            id: host.id,
+            orbit: host.orbit,
+            soi: soi_m,
+        });
         spec.advance(0.0);
         return Some(spec);
     }
@@ -302,18 +414,39 @@ fn system_name(seed: u64, home: bool) -> String {
     if home {
         return "Sol Prima".into();
     }
-    const A: [&str; 14] = ["Al", "Ve", "Kor", "Tau", "Ny", "Sar", "Ced", "Ilu", "Pho", "Dra", "Hel", "Mir", "Ost", "Zen"];
-    const B: [&str; 10] = ["gol", "thea", "nis", "ara", "cyon", "mus", "dor", "phae", "rion", "ix"];
-    const C: [&str; 8] = ["Major", "Minor", "Prime", "Nova", "Deep", "Reach", "Gate", "Drift"];
+    const A: [&str; 14] = [
+        "Al", "Ve", "Kor", "Tau", "Ny", "Sar", "Ced", "Ilu", "Pho", "Dra", "Hel", "Mir", "Ost",
+        "Zen",
+    ];
+    const B: [&str; 10] = [
+        "gol", "thea", "nis", "ara", "cyon", "mus", "dor", "phae", "rion", "ix",
+    ];
+    const C: [&str; 8] = [
+        "Major", "Minor", "Prime", "Nova", "Deep", "Reach", "Gate", "Drift",
+    ];
     let h = mix(seed ^ 0x0051_57e3);
-    format!("{}{} {}", A[(h % 14) as usize], B[((h >> 8) % 10) as usize], C[((h >> 16) % 8) as usize])
+    format!(
+        "{}{} {}",
+        A[(h % 14) as usize],
+        B[((h >> 8) % 10) as usize],
+        C[((h >> 16) % 8) as usize]
+    )
 }
 
 fn planet_name(id: u64) -> String {
-    const A: [&str; 12] = ["Ka", "Vo", "Thel", "Ori", "Zan", "Mu", "Eka", "Ryn", "Sol", "Ixa", "Bel", "Qua"];
-    const B: [&str; 10] = ["ris", "dor", "nia", "x", "mar", "lune", "tor", "vex", "ra", "dun"];
+    const A: [&str; 12] = [
+        "Ka", "Vo", "Thel", "Ori", "Zan", "Mu", "Eka", "Ryn", "Sol", "Ixa", "Bel", "Qua",
+    ];
+    const B: [&str; 10] = [
+        "ris", "dor", "nia", "x", "mar", "lune", "tor", "vex", "ra", "dun",
+    ];
     let h = mix(id);
-    format!("{}{}-{}", A[(h % 12) as usize], B[((h >> 8) % 10) as usize], (h >> 16) % 100)
+    format!(
+        "{}{}-{}",
+        A[(h % 12) as usize],
+        B[((h >> 8) % 10) as usize],
+        (h >> 16) % 100
+    )
 }
 
 #[cfg(test)]
@@ -344,8 +477,14 @@ mod tests {
                 }
                 assert!((MIN_RADIUS..=MAX_RADIUS).contains(&p.radius));
                 let reach = soi(PlanetSpec::max_gravity_radius());
-                assert!(((p.orbit.radius + reach) as f64) < MARGIN, "system reaches into the next sector");
-                assert!(p.orbit.radius - reach > sys.star_radius * 3.0, "too near the star");
+                assert!(
+                    ((p.orbit.radius + reach) as f64) < MARGIN,
+                    "system reaches into the next sector"
+                );
+                assert!(
+                    p.orbit.radius - reach > sys.star_radius * 3.0,
+                    "too near the star"
+                );
                 for q in &planets[i + 1..] {
                     // Spheres of influence apart even when both are customized to the largest size.
                     assert!(p.center.distance(q.center) > 2.0 * reach as f64);
@@ -385,12 +524,19 @@ mod tests {
                 later.advance(0.5);
                 let mut before = m.clone();
                 before.advance(-0.5);
-                let fd = (later.center - before.center).as_vec3() - (host_at(host, 0.5) - host_at(host, -0.5)).as_vec3();
-                assert!((fd - m.velocity).length() < 0.01 * v.max(1.0), "{fd} vs {}", m.velocity);
+                let fd = (later.center - before.center).as_vec3()
+                    - (host_at(host, 0.5) - host_at(host, -0.5)).as_vec3();
+                assert!(
+                    (fd - m.velocity).length() < 0.01 * v.max(1.0),
+                    "{fd} vs {}",
+                    m.velocity
+                );
             }
             // No two moons of a planet share heights.
             for a in sys.planets.iter().filter(|p| p.is_moon()) {
-                for b in sys.planets.iter().filter(|p| p.is_moon() && p.id != a.id && p.host.unwrap().id == a.host.unwrap().id) {
+                for b in sys.planets.iter().filter(|p| {
+                    p.is_moon() && p.id != a.id && p.host.unwrap().id == a.host.unwrap().id
+                }) {
                     let (sa, sb) = (a.host.unwrap().soi, b.host.unwrap().soi);
                     assert!((a.orbit.radius - b.orbit.radius).abs() > sa + sb);
                 }
@@ -398,7 +544,12 @@ mod tests {
         }
         assert!(count > 5, "only {count} moons");
         let home = u.system(IVec3::ZERO).unwrap();
-        assert!(home.planets.iter().any(|m| m.host.is_some_and(|h| h.id == home.planets[0].id)), "the home planet has a moon");
+        assert!(
+            home.planets
+                .iter()
+                .any(|m| m.host.is_some_and(|h| h.id == home.planets[0].id)),
+            "the home planet has a moon"
+        );
     }
 
     fn host_at(p: &PlanetSpec, t: f64) -> DVec3 {
@@ -407,30 +558,143 @@ mod tests {
         p.center
     }
 
+    /// The generation Start uses (see `start_menu::fixed_gen`).
+    fn fixed() -> WorldGen {
+        WorldGen {
+            home_only: true,
+            planets: (3, 3),
+            max_moons: 1,
+            moon_chance: 0.0,
+            ..WorldGen::default()
+        }
+    }
+
+    #[test]
+    fn the_home_planet_always_has_a_named_moon() {
+        for make in [
+            WorldGen::default(),
+            fixed(),
+            WorldGen {
+                max_moons: 1,
+                moon_chance: 0.2,
+                ..default()
+            },
+        ] {
+            for seed in 0..300u64 {
+                let sys = Universe::with(seed, make.clone())
+                    .system(IVec3::ZERO)
+                    .unwrap();
+                let home = &sys.planets[0];
+                let moons: Vec<_> = sys
+                    .planets
+                    .iter()
+                    .filter(|m| m.host.is_some_and(|h| h.id == home.id))
+                    .collect();
+                assert!(
+                    !moons.is_empty(),
+                    "seed {seed}: no moon for the home planet"
+                );
+                assert_eq!(moons[0].name, MOON_NAME, "seed {seed}");
+                assert!(moons.iter().skip(1).all(|m| m.name != MOON_NAME));
+            }
+        }
+        // Start's world: that one moon and no others.
+        let sys = Universe::with(1337, fixed()).system(IVec3::ZERO).unwrap();
+        assert_eq!(sys.planets.iter().filter(|p| p.is_moon()).count(), 1);
+        assert_eq!(sys.planets.len(), 4);
+        // Without moons asked for, none (the home planet included).
+        let none = Universe::with(
+            1,
+            WorldGen {
+                max_moons: 0,
+                ..default()
+            },
+        )
+        .system(IVec3::ZERO)
+        .unwrap();
+        assert!(none.planets.iter().all(|p| !p.is_moon()));
+    }
+
     #[test]
     fn world_gen_knobs() {
         let base = Universe::new(5);
         // The defaults are the universe as it was.
         let a = base.system(IVec3::ZERO).unwrap();
-        let b = Universe::with(5, WorldGen::default()).system(IVec3::ZERO).unwrap();
+        let b = Universe::with(5, WorldGen::default())
+            .system(IVec3::ZERO)
+            .unwrap();
         assert_eq!(a.planets.len(), b.planets.len());
-        let one = Universe::with(5, WorldGen { single_planet: true, ..default() });
+        let one = Universe::with(
+            5,
+            WorldGen {
+                single_planet: true,
+                ..default()
+            },
+        );
         assert!(one.systems_near(DVec3::ZERO, 2).len() == 1);
-        assert_eq!(one.system(IVec3::ZERO).unwrap().planets.iter().filter(|p| !p.is_moon()).count(), 1);
-        let solo = Universe::with(5, WorldGen { home_only: true, planets: (3, 3), max_moons: 0, ..default() });
+        assert_eq!(
+            one.system(IVec3::ZERO)
+                .unwrap()
+                .planets
+                .iter()
+                .filter(|p| !p.is_moon())
+                .count(),
+            1
+        );
+        let solo = Universe::with(
+            5,
+            WorldGen {
+                home_only: true,
+                planets: (3, 3),
+                max_moons: 0,
+                ..default()
+            },
+        );
         assert_eq!(solo.systems_near(DVec3::ZERO, 3).len(), 1);
         assert_eq!(solo.system(IVec3::ZERO).unwrap().planets.len(), 3);
-        let none = Universe::with(5, WorldGen { max_moons: 0, ..default() });
-        assert!(none.systems_near(DVec3::ZERO, 1).iter().all(|s| s.planets.iter().all(|p| !p.is_moon())));
+        let none = Universe::with(
+            5,
+            WorldGen {
+                max_moons: 0,
+                ..default()
+            },
+        );
+        assert!(
+            none.systems_near(DVec3::ZERO, 1)
+                .iter()
+                .all(|s| s.planets.iter().all(|p| !p.is_moon()))
+        );
         // At the extremes systems still fit their sectors.
-        let big = Universe::with(5, WorldGen { planets: (7, 7), star_size: 1.5, moon_chance: 3.0, max_moons: 3, star_density: 1.0, ..default() });
+        let big = Universe::with(
+            5,
+            WorldGen {
+                planets: (7, 7),
+                star_size: 1.5,
+                moon_chance: 3.0,
+                max_moons: 3,
+                star_density: 1.0,
+                ..default()
+            },
+        );
         for sys in big.systems_near(DVec3::ZERO, 1) {
             for p in sys.planets.iter().filter(|p| !p.is_moon()) {
                 let reach = soi(PlanetSpec::max_gravity_radius());
-                assert!(((p.orbit.radius + reach) as f64) < MARGIN, "system reaches into the next sector");
+                assert!(
+                    ((p.orbit.radius + reach) as f64) < MARGIN,
+                    "system reaches into the next sector"
+                );
             }
         }
-        let fast = Universe::with(5, WorldGen { day_speed: 2.0, orbit_speed: 2.0, ..default() }).spawn().0;
+        let fast = Universe::with(
+            5,
+            WorldGen {
+                day_speed: 2.0,
+                orbit_speed: 2.0,
+                ..default()
+            },
+        )
+        .spawn()
+        .0;
         let slow = base.spawn().0;
         assert!((fast.spin.speed / slow.spin.speed - 2.0).abs() < 1e-4);
     }

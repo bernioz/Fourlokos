@@ -36,12 +36,26 @@ impl ItemDrop {
         let side = up.any_orthonormal_vector();
         let other = up.cross(side);
         let toss = side * (r[0] - 0.5) * 2.0 + other * (r[1] - 0.5) * 2.0 + up * (2.0 + r[2] * 1.5);
-        Self { stack, pos: center - up * 0.15, vel: toss, age: 0.0, delay: PICKUP_DELAY, resting: false }
+        Self {
+            stack,
+            pos: center - up * 0.15,
+            vel: toss,
+            age: 0.0,
+            delay: PICKUP_DELAY,
+            resting: false,
+        }
     }
 
     /// Thrown from the eye along `look`.
     pub fn thrown(stack: Stack, eye: Vec3, look: Vec3, up: Vec3) -> Self {
-        Self { stack, pos: eye - up * 0.3, vel: look * 6.0 + up * 1.2, age: 0.0, delay: THROWN_DELAY, resting: false }
+        Self {
+            stack,
+            pos: eye - up * 0.3,
+            vel: look * 6.0 + up * 1.2,
+            age: 0.0,
+            delay: THROWN_DELAY,
+            resting: false,
+        }
     }
 
     /// One step, `down` the way gravity pulls (unit), `solid` whether a point is inside
@@ -103,7 +117,10 @@ impl ItemDrop {
         if self.stack.item != other.stack.item || self.pos.distance_squared(other.pos) > 0.5 * 0.5 {
             return false;
         }
-        let n = other.stack.count.min(self.stack.max().saturating_sub(self.stack.count));
+        let n = other
+            .stack
+            .count
+            .min(self.stack.max().saturating_sub(self.stack.count));
         self.stack.count += n;
         other.stack.count -= n;
         other.stack.count == 0
@@ -116,7 +133,9 @@ impl Planet {
         if p.length() < self.grid.core {
             return true;
         }
-        let Some(c) = self.grid.cell_at(p) else { return false };
+        let Some(c) = self.grid.cell_at(p) else {
+            return false;
+        };
         let b = self.get(c);
         match block::shape(b) {
             block::Shape::Cube => true,
@@ -124,7 +143,13 @@ impl Planet {
                 let (face, i, j, k) = self.grid.coords(c);
                 let (a, bb) = self.grid.face_coords(face, p.as_dvec3());
                 let w = p.length() - self.grid.radius(k);
-                crate::shape::holds(b, crate::shape::joined(self, c), (a - i as f64) as f32, (bb - j as f64) as f32, w)
+                crate::shape::holds(
+                    b,
+                    crate::shape::joined(self, c),
+                    (a - i as f64) as f32,
+                    (bb - j as f64) as f32,
+                    w,
+                )
             }
             _ => false,
         }
@@ -160,16 +185,25 @@ mod tests {
     #[test]
     fn falls_and_rests_on_a_station_floor() {
         let s = Station::new("00000003".into(), "", SMOOTH_STONE);
-        let mut d = ItemDrop::popped(Stack::new(block::DIRT, 1), Vec3::new(2.5, 3.5, 2.5), Vec3::Y, [0.5; 3]);
+        let mut d = ItemDrop::popped(
+            Stack::new(block::DIRT, 1),
+            Vec3::new(2.5, 3.5, 2.5),
+            Vec3::Y,
+            [0.5; 3],
+        );
         for _ in 0..300 {
             d.step_station(&s, 1.0 / 60.0);
         }
-        assert!(d.resting && (d.pos.y - 1.0).abs() < 0.2, "rests at {:?}", d.pos);
+        assert!(
+            d.resting && (d.pos.y - 1.0).abs() < 0.2,
+            "rests at {:?}",
+            d.pos
+        );
     }
 
     #[test]
     fn looks_go_past_an_open_door_and_stop_at_a_shut_one() {
-        use crate::block::{door, Dir};
+        use crate::block::{Dir, door};
         let mut s = Station::new("00000004".into(), "", SMOOTH_STONE);
         s.set(IVec3::new(3, 1, 0), block::STONE);
         // A door at x = 2 whose panel, shut, lies on its x- side; open, on its z- side.
@@ -178,7 +212,11 @@ mod tests {
         let (eye, look) = (Vec3::new(0.5, 1.5, 0.5), Vec3::X);
         let hit = s.raycast(eye, look, 5.0).unwrap();
         assert_eq!(hit.cell, IVec3::new(2, 1, 0));
-        assert!((hit.point.x - 2.0).abs() < 1e-3, "on the board: {:?}", hit.point);
+        assert!(
+            (hit.point.x - 2.0).abs() < 1e-3,
+            "on the board: {:?}",
+            hit.point
+        );
         s.set(IVec3::new(2, 1, 0), door(Dir(0), true, false));
         let hit = s.raycast(eye, look, 5.0).unwrap();
         assert_eq!(hit.cell, IVec3::new(3, 1, 0), "through the open doorway");

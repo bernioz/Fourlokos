@@ -18,9 +18,15 @@ pub fn covered(a: f64, b: f64, d: f64) -> f64 {
         return (b.min(a) / a).powi(2);
     }
     // Area of the lens where two circles overlap.
-    let ca = ((d * d + a * a - b * b) / (2.0 * d * a)).clamp(-1.0, 1.0).acos();
-    let cb = ((d * d + b * b - a * a) / (2.0 * d * b)).clamp(-1.0, 1.0).acos();
-    let k = ((-d + a + b) * (d + a - b) * (d - a + b) * (d + a + b)).max(0.0).sqrt();
+    let ca = ((d * d + a * a - b * b) / (2.0 * d * a))
+        .clamp(-1.0, 1.0)
+        .acos();
+    let cb = ((d * d + b * b - a * a) / (2.0 * d * b))
+        .clamp(-1.0, 1.0)
+        .acos();
+    let k = ((-d + a + b) * (d + a - b) * (d - a + b) * (d + a + b))
+        .max(0.0)
+        .sqrt();
     let lens = a * a * ca + b * b * cb - 0.5 * k;
     (lens / (std::f64::consts::PI * a * a)).clamp(0.0, 1.0)
 }
@@ -45,7 +51,12 @@ pub fn sun_seen(p: DVec3, star: DVec3, star_radius: f64, body: DVec3, radius: f6
 /// star, seen from the planet) or lunar (the moon in the planet's shadow), and how much of the
 /// star is hidden then at the best spot. `at(t)` gives (star, planet, moon) centers at time t;
 /// radii are the star's, the planet's and the moon's.
-pub fn next_eclipse(at: impl Fn(f64) -> (DVec3, DVec3, DVec3), radii: (f64, f64, f64), from: f64, within: f64) -> Option<(f64, Kind, f64)> {
+pub fn next_eclipse(
+    at: impl Fn(f64) -> (DVec3, DVec3, DVec3),
+    radii: (f64, f64, f64),
+    from: f64,
+    within: f64,
+) -> Option<(f64, Kind, f64)> {
     let (rs, rp, rm) = radii;
     // How deep each kind is at time t (share of the star hidden, 0 = none).
     let depth = |t: f64| {
@@ -64,7 +75,13 @@ pub fn next_eclipse(at: impl Fn(f64) -> (DVec3, DVec3, DVec3), radii: (f64, f64,
         if s > 0.0 || l > 0.0 {
             // Follow it to where it is deepest.
             let kind = if s >= l { Kind::Solar } else { Kind::Lunar };
-            let of = |t: f64| if kind == Kind::Solar { depth(t).0 } else { depth(t).1 };
+            let of = |t: f64| {
+                if kind == Kind::Solar {
+                    depth(t).0
+                } else {
+                    depth(t).1
+                }
+            };
             let (mut best, mut deepest) = (t, of(t));
             let mut u = t;
             while of(u) > 0.0 && u < t + within {
@@ -118,7 +135,10 @@ mod tests {
         // A big planet close by covers it all.
         assert!(sun_seen(p, star, 2500.0, DVec3::new(300.0, 0.0, 0.0), 150.0) < 1e-9);
         // Off to the side, or behind: nothing.
-        assert_eq!(sun_seen(p, star, 2500.0, DVec3::new(0.0, 1000.0, 0.0), 60.0), 1.0);
+        assert_eq!(
+            sun_seen(p, star, 2500.0, DVec3::new(0.0, 1000.0, 0.0), 60.0),
+            1.0
+        );
         assert_eq!(sun_seen(p, star, 2500.0, -moon, 60.0), 1.0);
     }
 
@@ -127,14 +147,23 @@ mod tests {
         let u = crate::universe::Universe::new(1337);
         let sys = u.system(glam::IVec3::ZERO).unwrap();
         let planet = sys.planets[0].clone();
-        let moon = sys.planets.iter().find(|m| m.host.is_some_and(|h| h.id == planet.id)).unwrap().clone();
+        let moon = sys
+            .planets
+            .iter()
+            .find(|m| m.host.is_some_and(|h| h.id == planet.id))
+            .unwrap()
+            .clone();
         let at = |t: f64| {
             let (mut p, mut m) = (planet.clone(), moon.clone());
             p.advance(t);
             m.advance(t);
             (sys.center, p.center, m.center)
         };
-        let radii = (sys.star_radius as f64, planet.radius as f64, moon.radius as f64);
+        let radii = (
+            sys.star_radius as f64,
+            planet.radius as f64,
+            moon.radius as f64,
+        );
         // Within a few hours of game time there is one, and it hides some of the star.
         let (t, _, deep) = next_eclipse(at, radii, 0.0, 6.0 * 3600.0).expect("an eclipse");
         assert!(t > 0.0 && deep > 0.05, "{t} {deep}");

@@ -126,7 +126,9 @@ pub fn boxes(b: Block, join: [bool; 4]) -> Boxes {
                 out.push(arm(d, r, 0.5 - r, 0.5 + r, 0.0, 1.0));
             }
         }
-        _ if block::is_ladder(b) => out.push(board(block::facing(b).unwrap(), 1.0 / 16.0, 0.0, 1.0)),
+        _ if block::is_ladder(b) => {
+            out.push(board(block::facing(b).unwrap(), 1.0 / 16.0, 0.0, 1.0))
+        }
         _ => return collision(b, join),
     }
     out
@@ -152,7 +154,12 @@ pub fn collision(b: Block, join: [bool; 4]) -> Boxes {
         }
         block::GLASS_PANE => return boxes(b, join),
         _ if block::is_ladder(b) => out.push(board(f, BOARD, 0.0, 1.0)),
-        _ if block::is_door(b) => out.push(board(if block::is_open(b) { f.turned() } else { f }, BOARD, 0.0, 1.0)),
+        _ if block::is_door(b) => out.push(board(
+            if block::is_open(b) { f.turned() } else { f },
+            BOARD,
+            0.0,
+            1.0,
+        )),
         _ if block::is_trapdoor(b) => {
             if block::is_open(b) {
                 out.push(board(f, BOARD, 0.0, 1.0));
@@ -170,10 +177,16 @@ pub fn collision(b: Block, join: [bool; 4]) -> Boxes {
 /// Where a point of a torch (fractions, as it stands on the ground) goes: a torch on a wall
 /// stands higher, its foot against the wall, leaning out from it.
 pub fn torch_point(b: Block, u: f32, v: f32, w: f32) -> (f32, f32, f32) {
-    let Some(d) = block::facing(b) else { return (u, v, w) };
+    let Some(d) = block::facing(b) else {
+        return (u, v, w);
+    };
     let (axis, sign) = d.axis();
     let shift = sign * (0.42 - 0.35 * w);
-    let (u, v) = if axis == 0 { (u + shift, v) } else { (u, v + shift) };
+    let (u, v) = if axis == 0 {
+        (u + shift, v)
+    } else {
+        (u, v + shift)
+    };
     (u, v, w + 0.22)
 }
 
@@ -187,13 +200,20 @@ pub fn outline(b: Block, join: [bool; 4]) -> Boxes {
         Shape::Cube => return Boxes::full(),
         Shape::Empty | Shape::Liquid => {}
         Shape::Cross => out.push(match b {
-            block::TALL_GRASS | block::DEAD_BUSH => [px(2.0), px(2.0), 0.0, px(14.0), px(14.0), px(13.0)],
+            block::TALL_GRASS | block::DEAD_BUSH => {
+                [px(2.0), px(2.0), 0.0, px(14.0), px(14.0), px(13.0)]
+            }
             _ => [px(5.0), px(5.0), 0.0, px(11.0), px(11.0), px(10.0)],
         }),
         Shape::Torch => {
             // The stick's box, leaned as it is drawn.
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
-            for (u, v, w) in [(px(6.0), px(6.0), 0.0), (px(10.0), px(10.0), 0.0), (px(6.0), px(6.0), px(10.0)), (px(10.0), px(10.0), px(10.0))] {
+            for (u, v, w) in [
+                (px(6.0), px(6.0), 0.0),
+                (px(10.0), px(10.0), 0.0),
+                (px(6.0), px(6.0), px(10.0)),
+                (px(10.0), px(10.0), px(10.0)),
+            ] {
                 let (u, v, w) = torch_point(b, u, v, w);
                 for (k, x) in [u, v, w].into_iter().enumerate() {
                     lo[k] = lo[k].min(x);
@@ -210,7 +230,10 @@ pub fn outline(b: Block, join: [bool; 4]) -> Boxes {
 
 /// True if a point (fractions of its cell) is in a block's outline (see `outline`).
 pub fn in_outline(b: Block, join: [bool; 4], u: f32, v: f32, w: f32) -> bool {
-    block::shape(b) == Shape::Cube || outline(b, join).iter().any(|c| u >= c[0] && u <= c[3] && v >= c[1] && v <= c[4] && w >= c[2] && w <= c[5])
+    block::shape(b) == Shape::Cube
+        || outline(b, join)
+            .iter()
+            .any(|c| u >= c[0] && u <= c[3] && v >= c[1] && v <= c[4] && w >= c[2] && w <= c[5])
 }
 
 /// Where a ray (from `o` along `d`, in a cell's fractions) first goes into a box, if it does.
@@ -233,7 +256,9 @@ pub fn ray_box(o: [f32; 3], d: [f32; 3], c: Cuboid) -> Option<f32> {
 
 /// True if some collision box of `b` reaches `w` (fractions) at this point of its cell.
 pub fn holds(b: Block, join: [bool; 4], u: f32, v: f32, w: f32) -> bool {
-    collision(b, join).iter().any(|c| u >= c[0] && u <= c[3] && v >= c[1] && v <= c[4] && w >= c[2] && w <= c[5])
+    collision(b, join)
+        .iter()
+        .any(|c| u >= c[0] && u <= c[3] && v >= c[1] && v <= c[4] && w >= c[2] && w <= c[5])
 }
 
 /// Whether `b` at `p` has what it stands on (or hangs from).
@@ -241,7 +266,10 @@ pub fn supported<A: Around>(g: &A, p: A::Pos, b: Block) -> bool {
     let below = get(g, g.below(p));
     let wall = |d: Dir| block::is_solid(get(g, g.side(p, d)));
     match b {
-        block::TALL_GRASS | block::POPPY | block::DANDELION | block::CORNFLOWER => matches!(below, block::GRASS | block::DIRT),
+        block::TALL_GRASS | block::POPPY | block::DANDELION | block::CORNFLOWER => {
+            matches!(below, block::GRASS | block::DIRT)
+        }
+        _ if crate::crop::crop(b).is_some() => matches!(below, block::GRASS | block::DIRT),
         block::DEAD_BUSH => matches!(below, block::SAND | block::DIRT | block::GRASS),
         block::CACTUS => matches!(below, block::SAND | block::CACTUS),
         block::TORCH => block::is_solid(below) || below == block::FENCE,
@@ -285,9 +313,19 @@ pub enum Against {
 /// What placing `item` at `p` puts where: the blocks (more than one for a door), or None if it
 /// cannot go there. `against`: the block clicked; `look`: the side the player looks toward;
 /// `high`: the click was on the upper half of a side (a trapdoor then goes at the top).
-pub fn place<A: Around>(g: &A, p: A::Pos, item: Block, against: Against, look: Dir, high: bool) -> Option<Vec<(A::Pos, Block)>> {
-    let free = |q: Option<A::Pos>| q.is_some_and(|q| block::washable(g.at(q)) || block::is_liquid(g.at(q)));
-    if !free(Some(p)) {
+pub fn place<A: Around>(
+    g: &A,
+    p: A::Pos,
+    item: Block,
+    against: Against,
+    look: Dir,
+    high: bool,
+) -> Option<Vec<(A::Pos, Block)>> {
+    let free = |q: Option<A::Pos>| {
+        q.is_some_and(|q| block::washable(g.at(q)) || block::is_liquid(g.at(q)))
+    };
+    // Tools, food and materials are never put down.
+    if (crate::items::is_item(item) && crate::crop::plant_block(item).is_none()) || !free(Some(p)) {
         return None;
     }
     let b = match item {
@@ -318,7 +356,7 @@ pub fn place<A: Around>(g: &A, p: A::Pos, item: Block, against: Against, look: D
             Against::Below => block::trapdoor(look, false, false),
             Against::Above => block::trapdoor(look, false, true),
         },
-        b => b,
+        b => crate::crop::plant_block(b).unwrap_or(b),
     };
     supported(g, p, b).then(|| vec![(p, b)])
 }
@@ -328,7 +366,11 @@ pub fn door_pair<A: Around>(g: &A, p: A::Pos, b: Block) -> Option<A::Pos> {
     if !block::is_door(b) {
         return None;
     }
-    let q = if block::is_upper(b) { g.below(p) } else { g.above(p) }?;
+    let q = if block::is_upper(b) {
+        g.below(p)
+    } else {
+        g.above(p)
+    }?;
     let o = g.at(q);
     (block::is_door(o) && block::is_upper(o) != block::is_upper(b)).then_some(q)
 }
@@ -404,7 +446,11 @@ mod tests {
         fn side(&self, p: Self::Pos, d: Dir) -> Option<Self::Pos> {
             let (a, s) = d.axis();
             let s = s as i32;
-            Some(if a == 0 { (p.0 + s, p.1, p.2) } else { (p.0, p.1, p.2 + s) })
+            Some(if a == 0 {
+                (p.0 + s, p.1, p.2)
+            } else {
+                (p.0, p.1, p.2 + s)
+            })
         }
         fn above(&self, p: Self::Pos) -> Option<Self::Pos> {
             Some((p.0, p.1 + 1, p.2))
@@ -420,10 +466,20 @@ mod tests {
             for open in [false, true] {
                 for half in [false, true] {
                     let b = block::door(d, open, half);
-                    assert!(block::is_door(b) && block::facing(b) == Some(d) && block::is_open(b) == open && block::is_upper(b) == half);
+                    assert!(
+                        block::is_door(b)
+                            && block::facing(b) == Some(d)
+                            && block::is_open(b) == open
+                            && block::is_upper(b) == half
+                    );
                     assert_eq!(block::item(b), block::DOOR);
                     let t = block::trapdoor(d, open, half);
-                    assert!(block::is_trapdoor(t) && block::facing(t) == Some(d) && block::is_open(t) == open && block::is_top(t) == half);
+                    assert!(
+                        block::is_trapdoor(t)
+                            && block::facing(t) == Some(d)
+                            && block::is_open(t) == open
+                            && block::is_top(t) == half
+                    );
                     assert_eq!(block::toggled(block::toggled(t)), t);
                 }
             }
@@ -431,7 +487,12 @@ mod tests {
             assert_eq!(block::item(block::wall_torch(d)), block::TORCH);
             assert_eq!(d.turned().turned(), d.opposite());
         }
-        assert_eq!(block::TRAPDOOR as usize + 16, block::COUNT);
+        assert_eq!(
+            block::TRAPDOOR as usize + 16,
+            block::CRAFTING_TABLE as usize
+        );
+        assert_eq!(block::FURNACE as usize + 1, 114);
+        assert_eq!(block::COUNT, 128);
     }
 
     #[test]
@@ -440,14 +501,22 @@ mod tests {
         w.0.insert((0, 0, 0), block::GRASS);
         w.0.insert((1, 0, 0), block::STONE);
         assert!(place(&w, (0, 1, 0), block::POPPY, Against::Below, Dir(0), false).is_some());
-        assert!(place(&w, (1, 1, 0), block::POPPY, Against::Below, Dir(0), false).is_none(), "a flower on stone");
-        assert!(place(&w, (5, 5, 5), block::POPPY, Against::Below, Dir(0), false).is_none(), "a flower in the air");
+        assert!(
+            place(&w, (1, 1, 0), block::POPPY, Against::Below, Dir(0), false).is_none(),
+            "a flower on stone"
+        );
+        assert!(
+            place(&w, (5, 5, 5), block::POPPY, Against::Below, Dir(0), false).is_none(),
+            "a flower in the air"
+        );
         let door = place(&w, (1, 1, 0), block::DOOR, Against::Below, Dir(1), false).unwrap();
         assert_eq!(door.len(), 2);
         for (p, b) in door {
             w.0.insert(p, b);
         }
-        assert!(supported(&w, (1, 1, 0), w.at((1, 1, 0))) && supported(&w, (1, 2, 0), w.at((1, 2, 0))));
+        assert!(
+            supported(&w, (1, 1, 0), w.at((1, 1, 0))) && supported(&w, (1, 2, 0), w.at((1, 2, 0)))
+        );
         // Opening it opens both halves.
         let t = toggle(&w, (1, 2, 0));
         assert_eq!(t.len(), 2);
@@ -461,7 +530,17 @@ mod tests {
     fn torches_on_walls_and_fences_join() {
         let mut w = Flat::default();
         w.0.insert((0, 0, 0), block::STONE);
-        assert_eq!(place(&w, (1, 0, 0), block::TORCH, Against::Side(Dir(0)), Dir(0), false), Some(vec![((1, 0, 0), block::wall_torch(Dir(0)))]));
+        assert_eq!(
+            place(
+                &w,
+                (1, 0, 0),
+                block::TORCH,
+                Against::Side(Dir(0)),
+                Dir(0),
+                false
+            ),
+            Some(vec![((1, 0, 0), block::wall_torch(Dir(0)))])
+        );
         assert!(place(&w, (0, -1, 0), block::TORCH, Against::Above, Dir(0), false).is_none());
         w.0.insert((1, 0, 0), block::FENCE);
         w.0.insert((2, 0, 0), block::FENCE);
@@ -469,8 +548,14 @@ mod tests {
         let c = collision(block::FENCE, [false; 4]);
         assert!(c.iter().all(|b| b[5] == FENCE_HEIGHT));
         // A closed door is a board on its side; open, on the next side round.
-        let shut = collision(block::door(Dir(0), false, false), [false; 4]).iter().next().unwrap();
-        let open = collision(block::door(Dir(0), true, false), [false; 4]).iter().next().unwrap();
+        let shut = collision(block::door(Dir(0), false, false), [false; 4])
+            .iter()
+            .next()
+            .unwrap();
+        let open = collision(block::door(Dir(0), true, false), [false; 4])
+            .iter()
+            .next()
+            .unwrap();
         assert!(shut[3] < 0.2 && open[4] < 0.2);
     }
 
@@ -481,9 +566,15 @@ mod tests {
         w.0.insert((1, 0, 0), block::DIRT);
         assert!(grass_near(&w, (1, 0, 0)));
         assert!(!grass_near(&w, (5, 0, 0)));
-        assert_eq!(grass_tick(block::DIRT, block::AIR, true, true), Some(block::GRASS));
+        assert_eq!(
+            grass_tick(block::DIRT, block::AIR, true, true),
+            Some(block::GRASS)
+        );
         assert_eq!(grass_tick(block::DIRT, block::AIR, false, true), None);
-        assert_eq!(grass_tick(block::GRASS, block::STONE, true, true), Some(block::DIRT));
+        assert_eq!(
+            grass_tick(block::GRASS, block::STONE, true, true),
+            Some(block::DIRT)
+        );
         assert_eq!(grass_tick(block::GRASS, block::GLASS, true, true), None);
     }
 }

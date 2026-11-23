@@ -26,14 +26,22 @@ pub fn pick(biome: Biome, rng: &mut Rng, density: f32) -> Option<Plant> {
     }
     let r = r / density;
     match biome {
-        Biome::Forest if r < 0.028 => Some(if rng.f32() < 0.65 { Plant::Oak } else { Plant::Birch }),
+        Biome::Forest if r < 0.028 => Some(if rng.f32() < 0.65 {
+            Plant::Oak
+        } else {
+            Plant::Birch
+        }),
         Biome::Meadow if r < 0.004 => Some(match rng.int(0, 9) {
             0..=5 => Plant::Oak,
             6..=7 => Plant::Birch,
             _ => Plant::Acacia,
         }),
         Biome::Frozen if r < 0.010 => Some(Plant::Pine),
-        Biome::Desert if r < 0.004 => Some(if rng.f32() < 0.8 { Plant::Cactus } else { Plant::Acacia }),
+        Biome::Desert if r < 0.004 => Some(if rng.f32() < 0.8 {
+            Plant::Cactus
+        } else {
+            Plant::Acacia
+        }),
         Biome::Crystal if r < 0.008 => Some(Plant::CrystalSpire),
         Biome::Barren if r < 0.005 => Some(Plant::Boulder),
         _ => None,
@@ -54,7 +62,11 @@ pub fn pick_small(biome: Biome, rng: &mut Rng, grass: f32, flowers: f32) -> Opti
     if r < f {
         Some([block::POPPY, block::DANDELION, block::CORNFLOWER][rng.int(0, 2) as usize])
     } else if r < f + g {
-        Some(if biome == Biome::Desert { block::DEAD_BUSH } else { block::TALL_GRASS })
+        Some(if biome == Biome::Desert {
+            block::DEAD_BUSH
+        } else {
+            block::TALL_GRASS
+        })
     } else {
         None
     }
@@ -117,7 +129,11 @@ fn grow_inner(p: &mut Planet, base: CellId, kind: Plant, rng: &mut Rng) -> Optio
             let top = trunk(p, base, h, block::WOOD)?;
             // Wide and round: fullest just below the trunk's top.
             for (dy, r) in [(-2i32, 2.6), (-1, 3.1), (0, 2.9), (1, 2.1), (2, 1.2)] {
-                let c = if dy < 0 { trunk_cell(p, top, (-dy) as usize)? } else { up(p, top, dy as usize)? };
+                let c = if dy < 0 {
+                    trunk_cell(p, top, (-dy) as usize)?
+                } else {
+                    up(p, top, dy as usize)?
+                };
                 canopy_layer(p, c, r + rng.range(-0.2, 0.3), block::LEAVES, rng);
             }
         }
@@ -126,7 +142,11 @@ fn grow_inner(p: &mut Planet, base: CellId, kind: Plant, rng: &mut Rng) -> Optio
             let top = trunk(p, base, h, block::BIRCH_LOG)?;
             // Tall and narrow.
             for (dy, r) in [(-3i32, 1.6), (-2, 2.1), (-1, 2.1), (0, 1.7), (1, 1.0)] {
-                let c = if dy < 0 { trunk_cell(p, top, (-dy) as usize)? } else { up(p, top, dy as usize)? };
+                let c = if dy < 0 {
+                    trunk_cell(p, top, (-dy) as usize)?
+                } else {
+                    up(p, top, dy as usize)?
+                };
                 canopy_layer(p, c, r, block::BIRCH_LEAVES, rng);
             }
         }
@@ -140,7 +160,13 @@ fn grow_inner(p: &mut Planet, base: CellId, kind: Plant, rng: &mut Rng) -> Optio
             for i in 0..rings {
                 let t = i as f32 / rings as f32;
                 let r = (1.0 - t) * 3.3 + 0.6;
-                canopy_layer(p, c, if i % 2 == 0 { r } else { r * 0.62 }, block::PINE_LEAVES, rng);
+                canopy_layer(
+                    p,
+                    c,
+                    if i % 2 == 0 { r } else { r * 0.62 },
+                    block::PINE_LEAVES,
+                    rng,
+                );
                 match p.grid.neighbor(c, Side::Top) {
                     Some(n) => c = n,
                     None => return Some(()),
@@ -153,8 +179,20 @@ fn grow_inner(p: &mut Planet, base: CellId, kind: Plant, rng: &mut Rng) -> Optio
             let h = rng.int(4, 6) as usize;
             let top = trunk(p, base, h, block::WOOD)?;
             // Flat, wide umbrella.
-            canopy_layer(p, up(p, top, 1)?, rng.range(3.2, 4.0), block::ACACIA_LEAVES, rng);
-            canopy_layer(p, up(p, top, 2)?, rng.range(1.8, 2.4), block::ACACIA_LEAVES, rng);
+            canopy_layer(
+                p,
+                up(p, top, 1)?,
+                rng.range(3.2, 4.0),
+                block::ACACIA_LEAVES,
+                rng,
+            );
+            canopy_layer(
+                p,
+                up(p, top, 2)?,
+                rng.range(1.8, 2.4),
+                block::ACACIA_LEAVES,
+                rng,
+            );
         }
         Plant::Cactus => {
             trunk(p, base, rng.int(2, 4) as usize, block::CACTUS)?;

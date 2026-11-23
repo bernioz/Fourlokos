@@ -73,7 +73,11 @@ fn pours_into(l: Liquid, b: Block) -> bool {
 
 /// Liquid of kind `l` spreading sideways at `level` can go into a cell holding `b`.
 fn spreads_into(l: Liquid, b: Block, level: u8) -> bool {
-    block::washable(b) || (block::liquid(b) == Some(l) && !block::is_source(b) && !block::is_falling(b) && block::amount(b) < level)
+    block::washable(b)
+        || (block::liquid(b) == Some(l)
+            && !block::is_source(b)
+            && !block::is_falling(b)
+            && block::amount(b) < level)
 }
 
 /// The cells waiting to update, by the tick they are due.
@@ -86,7 +90,11 @@ pub struct Flow<P> {
 
 impl<P> Default for Flow<P> {
     fn default() -> Self {
-        Self { now: 0, due: BTreeMap::new(), queued: HashSet::new() }
+        Self {
+            now: 0,
+            due: BTreeMap::new(),
+            queued: HashSet::new(),
+        }
     }
 }
 
@@ -111,7 +119,11 @@ impl<P: Copy + Eq + Hash> Flow<P> {
         let around = w.sides(p).into_iter().chain([w.up(p), w.down(p)]).flatten();
         for q in std::iter::once(p).chain(around) {
             if let Some(l) = block::liquid(w.block(q)) {
-                let delay = if l == Liquid::Lava && touches_water(w, q) { 2 } else { ticks(l) };
+                let delay = if l == Liquid::Lava && touches_water(w, q) {
+                    2
+                } else {
+                    ticks(l)
+                };
                 self.schedule(q, delay);
             }
         }
@@ -157,7 +169,15 @@ impl<P: Copy + Eq + Hash> Flow<P> {
         let Some(l) = block::liquid(b) else { return 0 };
         // Lava meeting water hardens.
         if l == Liquid::Lava && touches_water(w, p) {
-            return self.set(w, p, if block::is_source(b) { block::OBSIDIAN } else { block::COBBLESTONE });
+            return self.set(
+                w,
+                p,
+                if block::is_source(b) {
+                    block::OBSIDIAN
+                } else {
+                    block::COBBLESTONE
+                },
+            );
         }
         let mut changed = 0;
         let mut state = b;
@@ -175,7 +195,11 @@ impl<P: Copy + Eq + Hash> Flow<P> {
         if let Some(d) = w.down(p) {
             let below = w.block(d);
             if pours_into(l, below) {
-                let to = if block::liquid(below) == Some(Liquid::Water) && l == Liquid::Lava { block::STONE } else { l.falling() };
+                let to = if block::liquid(below) == Some(Liquid::Water) && l == Liquid::Lava {
+                    block::STONE
+                } else {
+                    l.falling()
+                };
                 return changed + self.set(w, d, to);
             }
         }
@@ -185,7 +209,12 @@ impl<P: Copy + Eq + Hash> Flow<P> {
             return changed;
         }
         let level = (a - drop(l)).min(7);
-        let open: Vec<P> = w.sides(p).into_iter().flatten().filter(|&s| spreads_into(l, w.block(s), level)).collect();
+        let open: Vec<P> = w
+            .sides(p)
+            .into_iter()
+            .flatten()
+            .filter(|&s| spreads_into(l, w.block(s), level))
+            .collect();
         if open.is_empty() {
             return changed;
         }
@@ -202,7 +231,9 @@ impl<P: Copy + Eq + Hash> Flow<P> {
 
 /// What a liquid cell that is not a source should be now, from what feeds it.
 fn settle<C: Cells>(w: &C, p: C::Pos, l: Liquid) -> Block {
-    if w.up(p).is_some_and(|u| block::liquid(w.block(u)) == Some(l)) {
+    if w.up(p)
+        .is_some_and(|u| block::liquid(w.block(u)) == Some(l))
+    {
         return l.falling();
     }
     let (mut best, mut sources) = (0, 0);
@@ -235,12 +266,17 @@ fn settle<C: Cells>(w: &C, p: C::Pos, l: Liquid) -> Block {
 /// source or does not stand on more of itself (a falling column only spreads where it lands).
 fn spreads_sideways<C: Cells>(w: &C, p: C::Pos, b: Block, l: Liquid) -> bool {
     let below = w.down(p).map(|d| w.block(d));
-    !below.is_some_and(|d| pours_into(l, d)) && (block::is_source(b) || !below.is_some_and(|d| block::liquid(d) == Some(l)))
+    !below.is_some_and(|d| pours_into(l, d))
+        && (block::is_source(b) || !below.is_some_and(|d| block::liquid(d) == Some(l)))
 }
 
 /// Lava at `p` has water beside or above it.
 fn touches_water<C: Cells>(w: &C, p: C::Pos) -> bool {
-    w.sides(p).into_iter().chain([w.up(p)]).flatten().any(|q| block::liquid(w.block(q)) == Some(Liquid::Water))
+    w.sides(p)
+        .into_iter()
+        .chain([w.up(p)])
+        .flatten()
+        .any(|q| block::liquid(w.block(q)) == Some(Liquid::Water))
 }
 
 /// Cells from `start` (one step from `from`) to the nearest cell the liquid could pour down
@@ -340,7 +376,10 @@ mod tests {
         // Taking the source away dries it all up.
         place(&mut w, &mut f, IVec3::new(8, 1, 8), block::AIR);
         run(&mut w, &mut f, 400);
-        assert!(w.cells.values().all(|&b| !block::is_liquid(b)), "puddles left");
+        assert!(
+            w.cells.values().all(|&b| !block::is_liquid(b)),
+            "puddles left"
+        );
     }
 
     #[test]
@@ -349,9 +388,16 @@ mod tests {
         place(&mut w, &mut f, IVec3::new(8, 5, 8), block::WATER);
         run(&mut w, &mut f, 200);
         for y in 1..5 {
-            assert_eq!(w.block(IVec3::new(8, y, 8)), Liquid::Water.falling(), "column at {y}");
+            assert_eq!(
+                w.block(IVec3::new(8, y, 8)),
+                Liquid::Water.falling(),
+                "column at {y}"
+            );
         }
-        assert!(block::is_liquid(w.block(IVec3::new(12, 1, 8))), "spreads where it lands");
+        assert!(
+            block::is_liquid(w.block(IVec3::new(12, 1, 8))),
+            "spreads where it lands"
+        );
         // Like Minecraft's, a source over its own fall opens into a cross of little falls.
         assert_eq!(w.block(IVec3::new(9, 5, 8)), Liquid::Water.flowing(7));
         assert_eq!(w.block(IVec3::new(10, 5, 8)), block::AIR);
@@ -365,9 +411,16 @@ mod tests {
         place(&mut w, &mut f, IVec3::new(8, 1, 8), block::WATER);
         run(&mut w, &mut f, 12);
         assert!(block::is_liquid(w.block(IVec3::new(9, 1, 8))));
-        assert_eq!(w.block(IVec3::new(7, 1, 8)), block::AIR, "spread away from the hole");
+        assert_eq!(
+            w.block(IVec3::new(7, 1, 8)),
+            block::AIR,
+            "spread away from the hole"
+        );
         run(&mut w, &mut f, 20);
-        assert!(block::is_liquid(w.block(IVec3::new(10, 0, 8))), "poured into the hole");
+        assert!(
+            block::is_liquid(w.block(IVec3::new(10, 0, 8))),
+            "poured into the hole"
+        );
     }
 
     #[test]
@@ -397,19 +450,40 @@ mod tests {
         }
         place(&mut w, &mut f, IVec3::new(4, 1, 8), block::LAVA);
         run(&mut w, &mut f, 100);
-        assert_eq!(block::liquid(w.block(IVec3::new(6, 1, 8))), Some(Liquid::Lava), "lava spreads (slowly)");
+        assert_eq!(
+            block::liquid(w.block(IVec3::new(6, 1, 8))),
+            Some(Liquid::Lava),
+            "lava spreads (slowly)"
+        );
         place(&mut w, &mut f, IVec3::new(5, 1, 8), block::WATER);
         run(&mut w, &mut f, 400);
-        assert_eq!(w.block(IVec3::new(4, 1, 8)), block::OBSIDIAN, "the source hardens to obsidian");
-        assert_eq!(w.block(IVec3::new(6, 1, 8)), block::COBBLESTONE, "flowing lava to cobblestone");
-        assert!(w.cells.values().all(|&b| block::liquid(b) != Some(Liquid::Lava)), "no lava left");
+        assert_eq!(
+            w.block(IVec3::new(4, 1, 8)),
+            block::OBSIDIAN,
+            "the source hardens to obsidian"
+        );
+        assert_eq!(
+            w.block(IVec3::new(6, 1, 8)),
+            block::COBBLESTONE,
+            "flowing lava to cobblestone"
+        );
+        assert!(
+            w.cells
+                .values()
+                .all(|&b| block::liquid(b) != Some(Liquid::Lava)),
+            "no lava left"
+        );
 
         // Flowing lava meeting water: cobblestone. Lava falling into water: stone.
         let (mut w, mut f) = (Box::floor(), Flow::default());
         place(&mut w, &mut f, IVec3::new(8, 1, 8), Liquid::Water.source());
         place(&mut w, &mut f, IVec3::new(8, 4, 8), block::LAVA);
         run(&mut w, &mut f, 300);
-        assert_eq!(w.block(IVec3::new(8, 1, 8)), block::STONE, "lava poured on water");
+        assert_eq!(
+            w.block(IVec3::new(8, 1, 8)),
+            block::STONE,
+            "lava poured on water"
+        );
     }
 
     #[test]
@@ -419,6 +493,9 @@ mod tests {
         w.put(IVec3::new(7, 1, 8), block::POPPY);
         place(&mut w, &mut f, IVec3::new(8, 1, 8), block::WATER);
         run(&mut w, &mut f, 20);
-        assert!(block::is_liquid(w.block(IVec3::new(9, 1, 8))) && block::is_liquid(w.block(IVec3::new(7, 1, 8))));
+        assert!(
+            block::is_liquid(w.block(IVec3::new(9, 1, 8)))
+                && block::is_liquid(w.block(IVec3::new(7, 1, 8)))
+        );
     }
 }

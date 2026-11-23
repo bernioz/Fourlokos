@@ -30,7 +30,8 @@ pub struct Schematic {
 impl Schematic {
     fn index(&self, p: IVec3) -> Option<usize> {
         let l = p - self.min;
-        (l.cmpge(IVec3::ZERO).all() && l.cmplt(self.size).all()).then(|| ((l.y * self.size.z + l.z) * self.size.x + l.x) as usize)
+        (l.cmpge(IVec3::ZERO).all() && l.cmplt(self.size).all())
+            .then(|| ((l.y * self.size.z + l.z) * self.size.x + l.x) as usize)
     }
 
     /// The block at `p` (relative to the core); air outside.
@@ -42,7 +43,9 @@ impl Schematic {
     pub fn solid_cells(&self) -> impl Iterator<Item = (IVec3, Block)> + '_ {
         let (min, s) = (self.min, self.size);
         (0..s.y)
-            .flat_map(move |y| (0..s.z).flat_map(move |z| (0..s.x).map(move |x| min + IVec3::new(x, y, z))))
+            .flat_map(move |y| {
+                (0..s.z).flat_map(move |z| (0..s.x).map(move |x| min + IVec3::new(x, y, z)))
+            })
             .map(|p| (p, self.get(p)))
             .filter(|&(_, b)| b != block::AIR)
     }
@@ -79,13 +82,28 @@ impl Schematic {
             return Err("Bad size".into());
         }
         let blocks = take((size.x * size.y * size.z) as usize)?.to_vec();
-        Ok(Self { name, min, size, blocks })
+        Ok(Self {
+            name,
+            min,
+            size,
+            blocks,
+        })
     }
 }
 
 /// A name made safe to be a file name: letters, digits, `-` and `_` (others become `_`).
 pub fn file_stem(name: &str) -> String {
-    let s: String = name.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c.to_ascii_lowercase() } else { '_' }).collect();
+    let s: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
     if s.is_empty() { "schematic".into() } else { s }
 }
 
@@ -95,7 +113,12 @@ mod tests {
 
     #[test]
     fn round_trips_through_bytes() {
-        let s = Schematic { name: "Mi Base ñ".into(), min: IVec3::new(-3, -1, -2), size: IVec3::new(4, 2, 3), blocks: (0..24).collect() };
+        let s = Schematic {
+            name: "Mi Base ñ".into(),
+            min: IVec3::new(-3, -1, -2),
+            size: IVec3::new(4, 2, 3),
+            blocks: (0..24).collect(),
+        };
         assert_eq!(Schematic::from_bytes(&s.to_bytes()).unwrap(), s);
         assert_eq!(s.get(IVec3::new(-3, -1, -2)), 0);
         assert_eq!(s.get(IVec3::new(-2, -1, -2)), 1);

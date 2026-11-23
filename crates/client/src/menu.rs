@@ -7,14 +7,14 @@
 //! Debug: `ORBIT_MENU=1` opens it by itself on the first planet you stand on.
 
 use crate::player::Player;
-use crate::world::{reshape, Clock, Space};
+use crate::world::{Clock, Space, reshape};
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, Button};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use orbit_core::block::{self, Block};
-use orbit_core::planet::{Biome, Customization, Gen, Terrain, MAX_SCALE};
+use orbit_core::planet::{Biome, Customization, Gen, MAX_SCALE, Terrain};
 use orbit_core::rng::mix;
 use orbit_core::universe::Universe;
 
@@ -24,7 +24,12 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlanetMenu>()
             .add_observer(on_activate)
-            .add_systems(Update, (toggle, run_actions, refresh, style_buttons).chain().after(crate::world::MovePlanets));
+            .add_systems(
+                Update,
+                (toggle, run_actions, refresh, style_buttons)
+                    .chain()
+                    .after(crate::world::MovePlanets),
+            );
     }
 }
 
@@ -83,20 +88,66 @@ pub(crate) type Section = (&'static str, &'static [(Knob, &'static str)]);
 
 /// The panel's sections, in two columns.
 pub(crate) const LEFT: [Section; 3] = [
-    ("Shape", &[(Knob::Radius, "Radius"), (Knob::Relief, "Hills"), (Knob::Roughness, "Roughness"), (Knob::Mountains, "Mountains"), (Knob::Ranges, "Ranges")]),
-    ("Surface", &[(Knob::Type, "Type"), (Knob::Top, "Top block"), (Knob::Soil, "Soil block"), (Knob::SoilDepth, "Soil depth"), (Knob::Stone, "Rock block")]),
-    ("Climate", &[(Knob::Warmth, "Warmth"), (Knob::Moisture, "Moisture")]),
+    (
+        "Shape",
+        &[
+            (Knob::Radius, "Radius"),
+            (Knob::Relief, "Hills"),
+            (Knob::Roughness, "Roughness"),
+            (Knob::Mountains, "Mountains"),
+            (Knob::Ranges, "Ranges"),
+        ],
+    ),
+    (
+        "Surface",
+        &[
+            (Knob::Type, "Type"),
+            (Knob::Top, "Top block"),
+            (Knob::Soil, "Soil block"),
+            (Knob::SoilDepth, "Soil depth"),
+            (Knob::Stone, "Rock block"),
+        ],
+    ),
+    (
+        "Climate",
+        &[(Knob::Warmth, "Warmth"), (Knob::Moisture, "Moisture")],
+    ),
 ];
 pub(crate) const RIGHT: [Section; 4] = [
-    ("Life", &[(Knob::Trees, "Trees"), (Knob::Grass, "Tall grass"), (Knob::Flowers, "Flowers")]),
-    ("Water", &[(Knob::Oceans, "Oceans"), (Knob::Rivers, "Rivers")]),
-    ("Underground", &[(Knob::Caves, "Caves"), (Knob::CaveSize, "Cave size"), (Knob::Ores, "Ores")]),
-    ("Sky", &[(Knob::Day, "Day length"), (Knob::Tilt, "Axial tilt")]),
+    (
+        "Life",
+        &[
+            (Knob::Trees, "Trees"),
+            (Knob::Grass, "Tall grass"),
+            (Knob::Flowers, "Flowers"),
+        ],
+    ),
+    (
+        "Water",
+        &[(Knob::Oceans, "Oceans"), (Knob::Rivers, "Rivers")],
+    ),
+    (
+        "Underground",
+        &[
+            (Knob::Caves, "Caves"),
+            (Knob::CaveSize, "Cave size"),
+            (Knob::Ores, "Ores"),
+        ],
+    ),
+    (
+        "Sky",
+        &[(Knob::Day, "Day length"), (Knob::Tilt, "Axial tilt")],
+    ),
 ];
 
 /// Blocks the surface pickers run through; AIR stands for "the biome's own".
 fn surface_blocks() -> Vec<Block> {
-    std::iter::once(block::AIR).chain((0..block::COUNT as Block).filter(|&b| block::is_solid(b) && b != block::CORE && b != block::STATION_CORE)).collect()
+    std::iter::once(block::AIR)
+        .chain(
+            (0..block::COUNT as Block)
+                .filter(|&b| block::is_solid(b) && b != block::CORE && b != block::STATION_CORE),
+        )
+        .collect()
 }
 
 fn round(x: f32, step: f32) -> f32 {
@@ -114,7 +165,9 @@ impl Knob {
             *b = all[(i + dir as i32).rem_euclid(all.len() as i32) as usize];
         };
         match self {
-            Knob::Radius => c.radius = (c.radius + dir * 10.0).clamp(c.radius_range.0, c.radius_range.1),
+            Knob::Radius => {
+                c.radius = (c.radius + dir * 10.0).clamp(c.radius_range.0, c.radius_range.1)
+            }
             Knob::Relief => scale(&mut g.relief, 0.0, MAX_SCALE),
             Knob::Mountains => scale(&mut g.mountains, 0.0, MAX_SCALE),
             Knob::Ranges => scale(&mut g.ranges, 0.0, 1.0),
@@ -146,8 +199,20 @@ impl Knob {
     pub(crate) fn show(self, c: &Customization) -> String {
         let g = &c.knobs;
         let pct = |x: f32| format!("{:.0}%", x * 100.0);
-        let signed = |x: f32| if x.abs() < 0.05 { "normal".to_string() } else { format!("{:+.0}%", x * 100.0) };
-        let blk = |b: Block| if b == block::AIR { "Auto".to_string() } else { block::name(b).to_string() };
+        let signed = |x: f32| {
+            if x.abs() < 0.05 {
+                "normal".to_string()
+            } else {
+                format!("{:+.0}%", x * 100.0)
+            }
+        };
+        let blk = |b: Block| {
+            if b == block::AIR {
+                "Auto".to_string()
+            } else {
+                block::name(b).to_string()
+            }
+        };
         match self {
             Knob::Radius => format!("{}", c.radius as i32),
             Knob::Relief => pct(g.relief),
@@ -227,7 +292,8 @@ fn toggle(
             *auto = true;
             true
         });
-    let wants_close = keys.just_pressed(KeyCode::Escape) || menu.open.as_ref().is_some_and(|d| here != Some(d.planet));
+    let wants_close = keys.just_pressed(KeyCode::Escape)
+        || menu.open.as_ref().is_some_and(|d| here != Some(d.planet));
     if menu.is_open() && (keys.just_pressed(KeyCode::KeyP) || wants_close) {
         close(&mut commands, &mut menu);
         return;
@@ -235,10 +301,18 @@ fn toggle(
     if menu.is_open() || !open_now {
         return;
     }
-    let Some(slot) = here.and_then(|id| space.planets.get(&id)) else { return };
+    let Some(slot) = here.and_then(|id| space.planets.get(&id)) else {
+        return;
+    };
     let current = Customization::of(&slot.spec);
     let root = spawn_panel(&mut commands);
-    menu.open = Some(Draft { planet: slot.spec.id, name: slot.spec.name.clone(), current, edit: current, root });
+    menu.open = Some(Draft {
+        planet: slot.spec.id,
+        name: slot.spec.name.clone(),
+        current,
+        edit: current,
+        root,
+    });
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
 }
@@ -253,8 +327,13 @@ fn close(commands: &mut Commands, menu: &mut PlanetMenu) {
 /// The planet as the universe made it, before anyone customized it.
 fn original(space: &Space, id: u64) -> Option<Customization> {
     let slot = space.planets.get(&id)?;
-    let sys = space.universe.system(Universe::sector_of(slot.spec.star()))?;
-    sys.planets.iter().find(|p| p.id == id).map(Customization::of)
+    let sys = space
+        .universe
+        .system(Universe::sector_of(slot.spec.star()))?;
+    sys.planets
+        .iter()
+        .find(|p| p.id == id)
+        .map(Customization::of)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -270,7 +349,11 @@ fn run_actions(
 ) {
     let queue = std::mem::take(&mut menu.queue);
     // Shift-click takes five steps at once.
-    let times = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) { 5 } else { 1 };
+    let times = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+        5
+    } else {
+        1
+    };
     for action in queue {
         let Some(d) = menu.open.as_mut() else { return };
         match action {
@@ -291,7 +374,9 @@ fn run_actions(
             Action::Apply if d.edit == d.current => {}
             Action::Apply => {
                 let (id, c) = (d.planet, d.edit);
-                let Some(slot) = space.planets.get_mut(&id) else { continue };
+                let Some(slot) = space.planets.get_mut(&id) else {
+                    continue;
+                };
                 let mut spec = slot.spec.clone();
                 c.apply(&mut spec, clock.0);
                 d.current = Customization::of(&spec);
@@ -313,10 +398,17 @@ fn run_actions(
 }
 
 /// Keeps the panel's values in step with the draft; changed values show in yellow.
-fn refresh(menu: Res<PlanetMenu>, mut texts: Query<(&Field, &mut Text, &mut TextColor)>, space: Res<Space>) {
+fn refresh(
+    menu: Res<PlanetMenu>,
+    mut texts: Query<(&Field, &mut Text, &mut TextColor)>,
+    space: Res<Space>,
+) {
     let Some(d) = menu.open.as_ref() else { return };
     let (e, c) = (&d.edit, &d.current);
-    let generating = space.planets.get(&d.planet).is_some_and(|p| p.voxel.is_none());
+    let generating = space
+        .planets
+        .get(&d.planet)
+        .is_some_and(|p| p.voxel.is_none());
     for (field, mut text, mut color) in &mut texts {
         let (s, want) = match field {
             Field::Title => (format!("Planet {}", d.name), Color::WHITE),
@@ -325,7 +417,14 @@ fn refresh(menu: Res<PlanetMenu>, mut texts: Query<(&Field, &mut Text, &mut Text
                 let changed = now != k.show(c);
                 (now, if changed { CHANGED } else { Color::WHITE })
             }
-            Field::Seed => (format!("{:08x}", e.seed as u32), if e.seed != c.seed { CHANGED } else { Color::WHITE }),
+            Field::Seed => (
+                format!("{:08x}", e.seed as u32),
+                if e.seed != c.seed {
+                    CHANGED
+                } else {
+                    Color::WHITE
+                },
+            ),
             Field::Status => (
                 if generating {
                     "Generating...".into()
@@ -346,10 +445,17 @@ fn refresh(menu: Res<PlanetMenu>, mut texts: Query<(&Field, &mut Text, &mut Text
     }
 }
 
-fn style_buttons(mut buttons: Query<(&Hovered, Has<Pressed>, &Action, &mut BackgroundColor), With<Button>>, menu: Res<PlanetMenu>) {
+fn style_buttons(
+    mut buttons: Query<(&Hovered, Has<Pressed>, &Action, &mut BackgroundColor), With<Button>>,
+    menu: Res<PlanetMenu>,
+) {
     let dirty = menu.open.as_ref().is_some_and(|d| d.edit != d.current);
     for (hovered, pressed, action, mut bg) in &mut buttons {
-        let base = if *action == Action::Apply && dirty { ACCENT } else { BUTTON };
+        let base = if *action == Action::Apply && dirty {
+            ACCENT
+        } else {
+            BUTTON
+        };
         let c = if pressed {
             PRESS
         } else if hovered.get() {
@@ -364,7 +470,14 @@ fn style_buttons(mut buttons: Query<(&Hovered, Has<Pressed>, &Action, &mut Backg
 }
 
 fn colored(s: &str, size: f32, color: Color) -> (Text, TextFont, TextColor) {
-    (Text::new(s), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color))
+    (
+        Text::new(s),
+        TextFont {
+            font_size: FontSize::Px(size),
+            ..default()
+        },
+        TextColor(color),
+    )
 }
 
 fn button(label: &str, action: Action, width: f32) -> impl Bundle {
@@ -386,28 +499,61 @@ fn button(label: &str, action: Action, width: f32) -> impl Bundle {
 }
 
 fn row(top: f32) -> Node {
-    Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(6), margin: UiRect::top(px(top)), ..default() }
+    Node {
+        flex_direction: FlexDirection::Row,
+        align_items: AlignItems::Center,
+        column_gap: px(6),
+        margin: UiRect::top(px(top)),
+        ..default()
+    }
 }
 
 /// A row: label, [-] value [+].
 fn stepper(parent: &mut ChildSpawnerCommands, knob: Knob, label: &str) {
     parent.spawn(row(0.0)).with_children(|r| {
-        r.spawn((colored(label, 14.0, MUTED), Node { width: px(86), ..default() }));
+        r.spawn((
+            colored(label, 14.0, MUTED),
+            Node {
+                width: px(86),
+                ..default()
+            },
+        ));
         r.spawn(button("-", Action::Step(knob, -1), 26.0));
-        r.spawn((colored("", 14.0, Color::WHITE), Field::Value(knob), Node { width: px(150), justify_content: JustifyContent::Center, ..default() }, TextLayout::justify(Justify::Center)));
+        r.spawn((
+            colored("", 14.0, Color::WHITE),
+            Field::Value(knob),
+            Node {
+                width: px(150),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            TextLayout::justify(Justify::Center),
+        ));
         r.spawn(button("+", Action::Step(knob, 1), 26.0));
     });
 }
 
 fn column(parent: &mut ChildSpawnerCommands, sections: &[Section]) {
-    parent.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(5), ..default() }).with_children(|col| {
-        for (title, knobs) in sections {
-            col.spawn((colored(title, 15.0, Color::srgb(0.55, 0.8, 1.0)), Node { margin: UiRect::top(px(6)), ..default() }));
-            for &(k, label) in *knobs {
-                stepper(col, k, label);
+    parent
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: px(5),
+            ..default()
+        })
+        .with_children(|col| {
+            for (title, knobs) in sections {
+                col.spawn((
+                    colored(title, 15.0, Color::srgb(0.55, 0.8, 1.0)),
+                    Node {
+                        margin: UiRect::top(px(6)),
+                        ..default()
+                    },
+                ));
+                for &(k, label) in *knobs {
+                    stepper(col, k, label);
+                }
             }
-        }
-    });
+        });
 }
 
 fn spawn_panel(commands: &mut Commands) -> Entity {
@@ -429,13 +575,25 @@ fn spawn_panel(commands: &mut Commands) -> Entity {
         .with_children(|p| {
             p.spawn((colored("", 18.0, Color::WHITE), Field::Title));
             p.spawn(colored("Customize the planet you stand on", 13.0, MUTED));
-            p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(18), ..default() }).with_children(|cols| {
+            p.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: px(18),
+                ..default()
+            })
+            .with_children(|cols| {
                 column(cols, &LEFT);
                 column(cols, &RIGHT);
             });
             p.spawn(row(8.0)).with_children(|r| {
                 r.spawn(colored("Seed", 14.0, MUTED));
-                r.spawn((colored("", 14.0, Color::WHITE), Field::Seed, Node { width: px(76), ..default() }));
+                r.spawn((
+                    colored("", 14.0, Color::WHITE),
+                    Field::Seed,
+                    Node {
+                        width: px(76),
+                        ..default()
+                    },
+                ));
                 r.spawn(button("New seed", Action::NewSeed, 90.0));
                 r.spawn(button("Defaults", Action::Defaults, 90.0));
             });
@@ -452,7 +610,9 @@ fn spawn_panel(commands: &mut Commands) -> Entity {
 
 /// After a planet (or moon) changed: its moons, or the moon itself, fit their orbits to it.
 fn refit_family(space: &mut Space, id: u64, t: f64) {
-    let Some(changed) = space.planets.get(&id).map(|p| p.spec.clone()) else { return };
+    let Some(changed) = space.planets.get(&id).map(|p| p.spec.clone()) else {
+        return;
+    };
     let host = match changed.host {
         Some(h) => space.planets.get(&h.id).map(|p| p.spec.clone()),
         None => Some(changed.clone()),

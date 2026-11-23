@@ -85,7 +85,28 @@ pub const DOOR: Block = 80;
 /// slab at the bottom (or top) of its cell; open, standing up along `side`, where its hinge is.
 pub const TRAPDOOR: Block = 96;
 
-pub const COUNT: usize = 112;
+/// A crafting table (3 × 3 crafting) and a furnace (smelting): blocks you right click.
+pub const CRAFTING_TABLE: Block = 112;
+pub const FURNACE: Block = 113;
+pub const TOMATO_0: Block = 114;
+pub const TOMATO_1: Block = 115;
+pub const TOMATO_2: Block = 116;
+pub const TOMATO_3: Block = 117;
+pub const SUNFLOWER_0: Block = 118;
+pub const SUNFLOWER_1: Block = 119;
+pub const SUNFLOWER_2: Block = 120;
+pub const SUNFLOWER_3: Block = 121;
+pub const WHEAT_0: Block = 122;
+pub const WHEAT_1: Block = 123;
+pub const WHEAT_2: Block = 124;
+pub const WHEAT_3: Block = 125;
+pub const PALTO_0: Block = 126;
+pub const PALTO_1: Block = 127;
+
+pub const COUNT: usize = 128;
+
+/// Ids from here up are items that are not blocks (see `items`).
+pub const ITEM_BASE: Block = 128;
 
 /// How a block is drawn and collided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,18 +188,149 @@ pub mod tile {
     pub const DOOR_BOTTOM: u16 = 67;
     pub const TRAPDOOR: u16 = 68;
 
-    pub const COUNT: usize = 69;
+    pub const CRAFTING_TABLE_TOP: u16 = 69;
+    pub const CRAFTING_TABLE_SIDE: u16 = 70;
+    pub const FURNACE_TOP: u16 = 71;
+    pub const FURNACE_FRONT: u16 = 72;
+    pub const TOMATO_0: u16 = 73;
+    pub const TOMATO_1: u16 = 74;
+    pub const TOMATO_2: u16 = 75;
+    pub const TOMATO_3: u16 = 76;
+    pub const SUNFLOWER_0: u16 = 77;
+    pub const SUNFLOWER_1: u16 = 78;
+    pub const SUNFLOWER_2: u16 = 79;
+    pub const SUNFLOWER_3: u16 = 80;
+    pub const WHEAT_0: u16 = 81;
+    pub const WHEAT_1: u16 = 82;
+    pub const WHEAT_2: u16 = 83;
+    pub const WHEAT_3: u16 = 84;
+    pub const PALTO_0: u16 = 85;
+    pub const PALTO_1: u16 = 86;
+    /// The tiles of the items that are not blocks: `ITEM_BASE + (item - block::ITEM_BASE)`.
+    pub const ITEM_BASE: u16 = 87;
+
+    pub const COUNT: usize = ITEM_BASE as usize + crate::items::COUNT;
     pub const NAMES: [&str; COUNT] = [
-        "white", "stone", "dirt", "grass_top", "grass_side", "sand", "snow", "oak_log", "oak_log_top", "oak_leaves", "planks",
-        "crystal", "basalt", "birch_log", "birch_log_top", "birch_leaves", "pine_leaves", "acacia_leaves", "cactus_side",
-        "cactus_top", "sandstone", "sandstone_top", "deepslate", "gravel", "cobblestone", "bedrock", "coal_ore", "copper_ore",
-        "iron_ore", "gold_ore", "redstone_ore", "diamond_ore", "deepslate_coal_ore", "deepslate_copper_ore", "deepslate_iron_ore",
-        "deepslate_gold_ore", "deepslate_redstone_ore", "deepslate_diamond_ore", "torch", "tall_grass", "poppy", "dandelion",
-        "cornflower", "dead_bush", "smooth_stone", "station_core", "station_core_top",
-        "hull", "glass", "engine_side", "engine_nozzle", "helm_side", "helm_top", "chest_side", "chest_top",
-        "landing_pad", "landing_pad_ready", "landing_pad_side", "elevator_base", "elevator_edge", "elevator_base_side",
-        "water_still", "lava_still", "obsidian", "ice",
-        "ladder", "oak_door_top", "oak_door_bottom", "oak_trapdoor",
+        "white",
+        "stone",
+        "dirt",
+        "grass_top",
+        "grass_side",
+        "sand",
+        "snow",
+        "oak_log",
+        "oak_log_top",
+        "oak_leaves",
+        "planks",
+        "crystal",
+        "basalt",
+        "birch_log",
+        "birch_log_top",
+        "birch_leaves",
+        "pine_leaves",
+        "acacia_leaves",
+        "cactus_side",
+        "cactus_top",
+        "sandstone",
+        "sandstone_top",
+        "deepslate",
+        "gravel",
+        "cobblestone",
+        "bedrock",
+        "coal_ore",
+        "copper_ore",
+        "iron_ore",
+        "gold_ore",
+        "redstone_ore",
+        "diamond_ore",
+        "deepslate_coal_ore",
+        "deepslate_copper_ore",
+        "deepslate_iron_ore",
+        "deepslate_gold_ore",
+        "deepslate_redstone_ore",
+        "deepslate_diamond_ore",
+        "torch",
+        "tall_grass",
+        "poppy",
+        "dandelion",
+        "cornflower",
+        "dead_bush",
+        "smooth_stone",
+        "station_core",
+        "station_core_top",
+        "hull",
+        "glass",
+        "engine_side",
+        "engine_nozzle",
+        "helm_side",
+        "helm_top",
+        "chest_side",
+        "chest_top",
+        "landing_pad",
+        "landing_pad_ready",
+        "landing_pad_side",
+        "elevator_base",
+        "elevator_edge",
+        "elevator_base_side",
+        "water_still",
+        "lava_still",
+        "obsidian",
+        "ice",
+        "ladder",
+        "oak_door_top",
+        "oak_door_bottom",
+        "oak_trapdoor",
+        "crafting_table_top",
+        "crafting_table_side",
+        "furnace_top",
+        "furnace_front",
+        "tomato_0",
+        "tomato_1",
+        "tomato_2",
+        "tomato_3",
+        "sunflower_0",
+        "sunflower_1",
+        "sunflower_2",
+        "sunflower_3",
+        "wheat_0",
+        "wheat_1",
+        "wheat_2",
+        "wheat_3",
+        "palto_0",
+        "palto_1",
+        "item_stick",
+        "item_coal",
+        "item_copper_ingot",
+        "item_iron_ingot",
+        "item_apple",
+        "item_wooden_pickaxe",
+        "item_stone_pickaxe",
+        "item_copper_pickaxe",
+        "item_iron_pickaxe",
+        "item_wooden_sword",
+        "item_stone_sword",
+        "item_copper_sword",
+        "item_iron_sword",
+        "item_slimeball",
+        "item_slime_crown_core",
+        "item_kit_de_cohete",
+        "item_egg",
+        "item_raw_chicken",
+        "item_cooked_chicken",
+        "item_feather",
+        "item_tomato_seeds",
+        "item_sunflower_seeds",
+        "item_wheat_seeds",
+        "item_avocado",
+        "item_tomato",
+        "item_sunflower",
+        "item_oil",
+        "item_mayonnaise",
+        "item_bread",
+        "item_vienesa",
+        "item_completo_italiano",
+        "item_palto_sapling",
+        "item_wheat",
     ];
 
     /// Atlas layout: `COLUMNS` tiles per row.
@@ -190,7 +342,10 @@ pub mod tile {
     pub fn uv(t: u16, u: f32, v: f32) -> [f32; 2] {
         const INSET: f32 = 0.002;
         let (col, row) = ((t as usize % COLUMNS) as f32, (t as usize / COLUMNS) as f32);
-        let (u, v) = (INSET + u * (1.0 - 2.0 * INSET), INSET + v * (1.0 - 2.0 * INSET));
+        let (u, v) = (
+            INSET + u * (1.0 - 2.0 * INSET),
+            INSET + v * (1.0 - 2.0 * INSET),
+        );
         [(col + u) / COLUMNS as f32, (row + v) / ROWS as f32]
     }
 }
@@ -207,35 +362,82 @@ struct Info {
 }
 
 const fn cube(name: &'static str, color: [f32; 3], t: u16) -> Info {
-    Info { name, color, shape: Shape::Cube, tiles: [t, t, t], light: 0 }
+    Info {
+        name,
+        color,
+        shape: Shape::Cube,
+        tiles: [t, t, t],
+        light: 0,
+    }
 }
 const fn column(name: &'static str, color: [f32; 3], ends: u16, side: u16) -> Info {
-    Info { name, color, shape: Shape::Cube, tiles: [ends, side, ends], light: 0 }
+    Info {
+        name,
+        color,
+        shape: Shape::Cube,
+        tiles: [ends, side, ends],
+        light: 0,
+    }
 }
 const fn plant(name: &'static str, color: [f32; 3], t: u16) -> Info {
-    Info { name, color, shape: Shape::Cross, tiles: [t, t, t], light: 0 }
+    Info {
+        name,
+        color,
+        shape: Shape::Cross,
+        tiles: [t, t, t],
+        light: 0,
+    }
 }
 
 use tile as t;
 const INFO: [Info; COUNT] = [
-    Info { name: "Air", color: [0.0; 3], shape: Shape::Empty, tiles: [0; 3], light: 0 },
+    Info {
+        name: "Air",
+        color: [0.0; 3],
+        shape: Shape::Empty,
+        tiles: [0; 3],
+        light: 0,
+    },
     cube("Bedrock", [0.16, 0.12, 0.18], t::BEDROCK),
     cube("Stone", [0.52, 0.52, 0.55], t::STONE),
     cube("Dirt", [0.50, 0.35, 0.23], t::DIRT),
-    Info { name: "Grass", color: [0.42, 0.68, 0.30], shape: Shape::Cube, tiles: [t::GRASS_TOP, t::GRASS_SIDE, t::DIRT], light: 0 },
+    Info {
+        name: "Grass",
+        color: [0.42, 0.68, 0.30],
+        shape: Shape::Cube,
+        tiles: [t::GRASS_TOP, t::GRASS_SIDE, t::DIRT],
+        light: 0,
+    },
     cube("Sand", [0.92, 0.85, 0.62], t::SAND),
     cube("Snow", [0.95, 0.97, 1.00], t::SNOW),
     column("Oak Log", [0.42, 0.29, 0.18], t::OAK_LOG_TOP, t::OAK_LOG),
     cube("Oak Leaves", [0.25, 0.55, 0.22], t::OAK_LEAVES),
     cube("Planks", [0.76, 0.60, 0.38], t::PLANKS),
-    Info { name: "Crystal", color: [0.50, 0.85, 0.98], shape: Shape::Cube, tiles: [t::CRYSTAL; 3], light: 9 },
+    Info {
+        name: "Crystal",
+        color: [0.50, 0.85, 0.98],
+        shape: Shape::Cube,
+        tiles: [t::CRYSTAL; 3],
+        light: 9,
+    },
     cube("Basalt", [0.22, 0.20, 0.25], t::BASALT),
-    column("Birch Log", [0.88, 0.86, 0.80], t::BIRCH_LOG_TOP, t::BIRCH_LOG),
+    column(
+        "Birch Log",
+        [0.88, 0.86, 0.80],
+        t::BIRCH_LOG_TOP,
+        t::BIRCH_LOG,
+    ),
     cube("Birch Leaves", [0.52, 0.72, 0.30], t::BIRCH_LEAVES),
     cube("Pine Needles", [0.17, 0.38, 0.27], t::PINE_LEAVES),
     cube("Acacia Leaves", [0.55, 0.64, 0.20], t::ACACIA_LEAVES),
     column("Cactus", [0.30, 0.58, 0.28], t::CACTUS_TOP, t::CACTUS_SIDE),
-    Info { name: "Sandstone", color: [0.84, 0.72, 0.50], shape: Shape::Cube, tiles: [t::SANDSTONE_TOP, t::SANDSTONE, t::SANDSTONE_TOP], light: 0 },
+    Info {
+        name: "Sandstone",
+        color: [0.84, 0.72, 0.50],
+        shape: Shape::Cube,
+        tiles: [t::SANDSTONE_TOP, t::SANDSTONE, t::SANDSTONE_TOP],
+        light: 0,
+    },
     cube("Deepslate", [0.30, 0.30, 0.33], t::DEEPSLATE),
     cube("Gravel", [0.50, 0.47, 0.46], t::GRAVEL),
     cube("Cobblestone", [0.48, 0.48, 0.48], t::COBBLESTONE),
@@ -243,65 +445,261 @@ const INFO: [Info; COUNT] = [
     cube("Copper Ore", [0.55, 0.50, 0.46], t::ORE + 1),
     cube("Iron Ore", [0.58, 0.54, 0.50], t::ORE + 2),
     cube("Gold Ore", [0.60, 0.57, 0.45], t::ORE + 3),
-    Info { name: "Redstone Ore", color: [0.58, 0.42, 0.42], shape: Shape::Cube, tiles: [t::ORE + 4; 3], light: 4 },
+    Info {
+        name: "Redstone Ore",
+        color: [0.58, 0.42, 0.42],
+        shape: Shape::Cube,
+        tiles: [t::ORE + 4; 3],
+        light: 4,
+    },
     cube("Diamond Ore", [0.48, 0.62, 0.64], t::ORE + 5),
     cube("Deepslate Coal Ore", [0.25, 0.25, 0.27], t::DEEP_ORE),
     cube("Deepslate Copper Ore", [0.36, 0.33, 0.32], t::DEEP_ORE + 1),
     cube("Deepslate Iron Ore", [0.38, 0.35, 0.34], t::DEEP_ORE + 2),
     cube("Deepslate Gold Ore", [0.40, 0.37, 0.30], t::DEEP_ORE + 3),
-    Info { name: "Deepslate Redstone Ore", color: [0.40, 0.28, 0.29], shape: Shape::Cube, tiles: [t::DEEP_ORE + 4; 3], light: 4 },
+    Info {
+        name: "Deepslate Redstone Ore",
+        color: [0.40, 0.28, 0.29],
+        shape: Shape::Cube,
+        tiles: [t::DEEP_ORE + 4; 3],
+        light: 4,
+    },
     cube("Deepslate Diamond Ore", [0.30, 0.42, 0.45], t::DEEP_ORE + 5),
-    Info { name: "Torch", color: [1.0, 0.8, 0.4], shape: Shape::Torch, tiles: [t::TORCH; 3], light: 14 },
+    Info {
+        name: "Torch",
+        color: [1.0, 0.8, 0.4],
+        shape: Shape::Torch,
+        tiles: [t::TORCH; 3],
+        light: 14,
+    },
     plant("Grass", [0.40, 0.66, 0.28], t::TALL_GRASS),
     plant("Poppy", [0.85, 0.20, 0.15], t::POPPY),
     plant("Dandelion", [0.95, 0.85, 0.20], t::DANDELION),
     plant("Cornflower", [0.35, 0.45, 0.90], t::CORNFLOWER),
     plant("Dead Bush", [0.55, 0.40, 0.22], t::DEAD_BUSH),
     cube("Smooth Stone", [0.62, 0.62, 0.63], t::SMOOTH_STONE),
-    Info { name: "Station Core", color: [0.55, 0.75, 0.95], shape: Shape::Cube, tiles: [t::STATION_CORE_TOP, t::STATION_CORE, t::STATION_CORE_TOP], light: 7 },
+    Info {
+        name: "Station Core",
+        color: [0.55, 0.75, 0.95],
+        shape: Shape::Cube,
+        tiles: [t::STATION_CORE_TOP, t::STATION_CORE, t::STATION_CORE_TOP],
+        light: 7,
+    },
     cube("Hull", [0.86, 0.87, 0.89], t::HULL),
     cube("Glass", [0.75, 0.88, 0.95], t::GLASS),
-    Info { name: "Engine", color: [0.40, 0.40, 0.44], shape: Shape::Cube, tiles: [t::HULL, t::ENGINE_SIDE, t::ENGINE_NOZZLE], light: 0 },
-    Info { name: "Helm", color: [0.35, 0.45, 0.60], shape: Shape::Cube, tiles: [t::HELM_TOP, t::HELM_SIDE, t::HULL], light: 5 },
-    Info { name: "Chest", color: [0.62, 0.45, 0.25], shape: Shape::Cube, tiles: [t::CHEST_TOP, t::CHEST_SIDE, t::CHEST_TOP], light: 0 },
-    Info { name: "Landing Pad", color: [0.36, 0.37, 0.40], shape: Shape::Cube, tiles: [t::PAD_TOP, t::PAD_SIDE, t::PAD_SIDE], light: 0 },
-    Info { name: "Landing Pad", color: [0.38, 0.40, 0.44], shape: Shape::Cube, tiles: [t::PAD_READY_TOP, t::PAD_SIDE, t::PAD_SIDE], light: 6 },
-    Info { name: "Elevator Base", color: [0.40, 0.42, 0.46], shape: Shape::Cube, tiles: [t::ELEVATOR_BASE_TOP, t::ELEVATOR_BASE_SIDE, t::ELEVATOR_BASE_SIDE], light: 0 },
-    Info { name: "Elevator Base", color: [0.62, 0.52, 0.22], shape: Shape::Cube, tiles: [t::ELEVATOR_EDGE_TOP, t::ELEVATOR_BASE_SIDE, t::ELEVATOR_BASE_SIDE], light: 0 },
-    water("Water"), water("Falling Water"), water("Water"), water("Water"), water("Water"), water("Water"), water("Water"), water("Water"), water("Water"),
-    lava("Lava"), lava("Falling Lava"), lava("Lava"), lava("Lava"), lava("Lava"), lava("Lava"), lava("Lava"), lava("Lava"), lava("Lava"),
+    Info {
+        name: "Engine",
+        color: [0.40, 0.40, 0.44],
+        shape: Shape::Cube,
+        tiles: [t::HULL, t::ENGINE_SIDE, t::ENGINE_NOZZLE],
+        light: 0,
+    },
+    Info {
+        name: "Helm",
+        color: [0.35, 0.45, 0.60],
+        shape: Shape::Cube,
+        tiles: [t::HELM_TOP, t::HELM_SIDE, t::HULL],
+        light: 5,
+    },
+    Info {
+        name: "Chest",
+        color: [0.62, 0.45, 0.25],
+        shape: Shape::Cube,
+        tiles: [t::CHEST_TOP, t::CHEST_SIDE, t::CHEST_TOP],
+        light: 0,
+    },
+    Info {
+        name: "Landing Pad",
+        color: [0.36, 0.37, 0.40],
+        shape: Shape::Cube,
+        tiles: [t::PAD_TOP, t::PAD_SIDE, t::PAD_SIDE],
+        light: 0,
+    },
+    Info {
+        name: "Landing Pad",
+        color: [0.38, 0.40, 0.44],
+        shape: Shape::Cube,
+        tiles: [t::PAD_READY_TOP, t::PAD_SIDE, t::PAD_SIDE],
+        light: 6,
+    },
+    Info {
+        name: "Elevator Base",
+        color: [0.40, 0.42, 0.46],
+        shape: Shape::Cube,
+        tiles: [
+            t::ELEVATOR_BASE_TOP,
+            t::ELEVATOR_BASE_SIDE,
+            t::ELEVATOR_BASE_SIDE,
+        ],
+        light: 0,
+    },
+    Info {
+        name: "Elevator Base",
+        color: [0.62, 0.52, 0.22],
+        shape: Shape::Cube,
+        tiles: [
+            t::ELEVATOR_EDGE_TOP,
+            t::ELEVATOR_BASE_SIDE,
+            t::ELEVATOR_BASE_SIDE,
+        ],
+        light: 0,
+    },
+    water("Water"),
+    water("Falling Water"),
+    water("Water"),
+    water("Water"),
+    water("Water"),
+    water("Water"),
+    water("Water"),
+    water("Water"),
+    water("Water"),
+    lava("Lava"),
+    lava("Falling Lava"),
+    lava("Lava"),
+    lava("Lava"),
+    lava("Lava"),
+    lava("Lava"),
+    lava("Lava"),
+    lava("Lava"),
+    lava("Lava"),
     cube("Obsidian", [0.10, 0.07, 0.16], t::OBSIDIAN),
     cube("Ice", [0.62, 0.78, 0.95], t::ICE),
-    Info { name: "Glass Pane", color: [0.75, 0.88, 0.95], shape: Shape::Boxes, tiles: [t::GLASS; 3], light: 0 },
-    Info { name: "Oak Fence", color: [0.76, 0.60, 0.38], shape: Shape::Boxes, tiles: [t::PLANKS; 3], light: 0 },
-    wall_torch_info(), wall_torch_info(), wall_torch_info(), wall_torch_info(),
-    ladder_info(), ladder_info(), ladder_info(), ladder_info(),
-    door_info(t::DOOR_BOTTOM), door_info(t::DOOR_BOTTOM), door_info(t::DOOR_BOTTOM), door_info(t::DOOR_BOTTOM),
-    door_info(t::DOOR_BOTTOM), door_info(t::DOOR_BOTTOM), door_info(t::DOOR_BOTTOM), door_info(t::DOOR_BOTTOM),
-    door_info(t::DOOR_TOP), door_info(t::DOOR_TOP), door_info(t::DOOR_TOP), door_info(t::DOOR_TOP),
-    door_info(t::DOOR_TOP), door_info(t::DOOR_TOP), door_info(t::DOOR_TOP), door_info(t::DOOR_TOP),
-    trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(),
-    trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(), trapdoor_info(),
+    Info {
+        name: "Glass Pane",
+        color: [0.75, 0.88, 0.95],
+        shape: Shape::Boxes,
+        tiles: [t::GLASS; 3],
+        light: 0,
+    },
+    Info {
+        name: "Oak Fence",
+        color: [0.76, 0.60, 0.38],
+        shape: Shape::Boxes,
+        tiles: [t::PLANKS; 3],
+        light: 0,
+    },
+    wall_torch_info(),
+    wall_torch_info(),
+    wall_torch_info(),
+    wall_torch_info(),
+    ladder_info(),
+    ladder_info(),
+    ladder_info(),
+    ladder_info(),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_BOTTOM),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    door_info(t::DOOR_TOP),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    trapdoor_info(),
+    column(
+        "Crafting Table",
+        [0.62, 0.48, 0.28],
+        t::CRAFTING_TABLE_TOP,
+        t::CRAFTING_TABLE_SIDE,
+    ),
+    column(
+        "Furnace",
+        [0.45, 0.45, 0.47],
+        t::FURNACE_TOP,
+        t::FURNACE_FRONT,
+    ),
+    plant("Tomatera joven", [0.25, 0.55, 0.18], t::TOMATO_0),
+    plant("Tomatera", [0.30, 0.65, 0.18], t::TOMATO_1),
+    plant("Tomatera florecida", [0.45, 0.72, 0.16], t::TOMATO_2),
+    plant("Tomatera madura", [0.85, 0.28, 0.12], t::TOMATO_3),
+    plant("Girasol joven", [0.25, 0.55, 0.18], t::SUNFLOWER_0),
+    plant("Girasol", [0.32, 0.68, 0.16], t::SUNFLOWER_1),
+    plant("Girasol alto", [0.45, 0.75, 0.12], t::SUNFLOWER_2),
+    plant("Girasol maduro", [0.95, 0.72, 0.08], t::SUNFLOWER_3),
+    plant("Trigo joven", [0.35, 0.55, 0.18], t::WHEAT_0),
+    plant("Trigo", [0.48, 0.68, 0.18], t::WHEAT_1),
+    plant("Trigo alto", [0.72, 0.70, 0.18], t::WHEAT_2),
+    plant("Trigo maduro", [0.95, 0.78, 0.18], t::WHEAT_3),
+    plant("Palto", [0.20, 0.58, 0.18], t::PALTO_0),
+    plant("Palto con frutos", [0.35, 0.68, 0.12], t::PALTO_1),
 ];
 
 const fn wall_torch_info() -> Info {
-    Info { name: "Torch", color: [1.0, 0.8, 0.4], shape: Shape::Torch, tiles: [t::TORCH; 3], light: 14 }
+    Info {
+        name: "Torch",
+        color: [1.0, 0.8, 0.4],
+        shape: Shape::Torch,
+        tiles: [t::TORCH; 3],
+        light: 14,
+    }
 }
 const fn ladder_info() -> Info {
-    Info { name: "Ladder", color: [0.62, 0.48, 0.28], shape: Shape::Boxes, tiles: [t::LADDER; 3], light: 0 }
+    Info {
+        name: "Ladder",
+        color: [0.62, 0.48, 0.28],
+        shape: Shape::Boxes,
+        tiles: [t::LADDER; 3],
+        light: 0,
+    }
 }
 const fn door_info(t: u16) -> Info {
-    Info { name: "Oak Door", color: [0.62, 0.48, 0.28], shape: Shape::Boxes, tiles: [t; 3], light: 0 }
+    Info {
+        name: "Oak Door",
+        color: [0.62, 0.48, 0.28],
+        shape: Shape::Boxes,
+        tiles: [t; 3],
+        light: 0,
+    }
 }
 const fn trapdoor_info() -> Info {
-    Info { name: "Oak Trapdoor", color: [0.62, 0.48, 0.28], shape: Shape::Boxes, tiles: [t::TRAPDOOR; 3], light: 0 }
+    Info {
+        name: "Oak Trapdoor",
+        color: [0.62, 0.48, 0.28],
+        shape: Shape::Boxes,
+        tiles: [t::TRAPDOOR; 3],
+        light: 0,
+    }
 }
 
 const fn water(name: &'static str) -> Info {
-    Info { name, color: [0.16, 0.36, 0.70], shape: Shape::Liquid, tiles: [t::WATER; 3], light: 0 }
+    Info {
+        name,
+        color: [0.16, 0.36, 0.70],
+        shape: Shape::Liquid,
+        tiles: [t::WATER; 3],
+        light: 0,
+    }
 }
 const fn lava(name: &'static str) -> Info {
-    Info { name, color: [0.95, 0.42, 0.08], shape: Shape::Liquid, tiles: [t::LAVA; 3], light: 15 }
+    Info {
+        name,
+        color: [0.95, 0.42, 0.08],
+        shape: Shape::Liquid,
+        tiles: [t::LAVA; 3],
+        light: 15,
+    }
 }
 
 /// Ores from shallow to deep, with where they lie (fraction of the crust from the surface: 0 top,
@@ -316,24 +714,120 @@ pub struct Ore {
 }
 
 pub const ORES: [Ore; 6] = [
-    Ore { block: COAL_ORE, deep: DEEP_COAL_ORE, from: 0.05, to: 0.6, rate: 1.2, size: 8 },
-    Ore { block: COPPER_ORE, deep: DEEP_COPPER_ORE, from: 0.15, to: 0.6, rate: 0.8, size: 6 },
-    Ore { block: IRON_ORE, deep: DEEP_IRON_ORE, from: 0.2, to: 0.9, rate: 1.0, size: 5 },
-    Ore { block: GOLD_ORE, deep: DEEP_GOLD_ORE, from: 0.6, to: 1.0, rate: 0.3, size: 4 },
-    Ore { block: REDSTONE_ORE, deep: DEEP_REDSTONE_ORE, from: 0.7, to: 1.0, rate: 0.5, size: 5 },
-    Ore { block: DIAMOND_ORE, deep: DEEP_DIAMOND_ORE, from: 0.85, to: 1.0, rate: 0.15, size: 3 },
+    Ore {
+        block: COAL_ORE,
+        deep: DEEP_COAL_ORE,
+        from: 0.05,
+        to: 0.6,
+        rate: 1.2,
+        size: 8,
+    },
+    Ore {
+        block: COPPER_ORE,
+        deep: DEEP_COPPER_ORE,
+        from: 0.15,
+        to: 0.6,
+        rate: 0.8,
+        size: 6,
+    },
+    Ore {
+        block: IRON_ORE,
+        deep: DEEP_IRON_ORE,
+        from: 0.2,
+        to: 0.9,
+        rate: 1.0,
+        size: 5,
+    },
+    Ore {
+        block: GOLD_ORE,
+        deep: DEEP_GOLD_ORE,
+        from: 0.6,
+        to: 1.0,
+        rate: 0.3,
+        size: 4,
+    },
+    Ore {
+        block: REDSTONE_ORE,
+        deep: DEEP_REDSTONE_ORE,
+        from: 0.7,
+        to: 1.0,
+        rate: 0.5,
+        size: 5,
+    },
+    Ore {
+        block: DIAMOND_ORE,
+        deep: DEEP_DIAMOND_ORE,
+        from: 0.85,
+        to: 1.0,
+        rate: 0.15,
+        size: 3,
+    },
 ];
 
 /// Every item there is, in the creative inventory's order (an item is a block: what it places).
 /// Water and lava go down as sources, like emptying a bucket.
-pub const ITEMS: [Block; 55] = [
-    STONE, COBBLESTONE, SMOOTH_STONE, DEEPSLATE, BASALT, OBSIDIAN, DIRT, GRASS, SAND, SANDSTONE, GRAVEL, SNOW, ICE, CRYSTAL,
-    WOOD, BIRCH_LOG, PLANKS, LEAVES, BIRCH_LEAVES, PINE_LEAVES, ACACIA_LEAVES, CACTUS,
-    GLASS, GLASS_PANE, FENCE, DOOR, TRAPDOOR, LADDER, TORCH,
-    TALL_GRASS, POPPY, DANDELION, CORNFLOWER, DEAD_BUSH,
-    COAL_ORE, COPPER_ORE, IRON_ORE, GOLD_ORE, REDSTONE_ORE, DIAMOND_ORE,
-    DEEP_COAL_ORE, DEEP_COPPER_ORE, DEEP_IRON_ORE, DEEP_GOLD_ORE, DEEP_REDSTONE_ORE, DEEP_DIAMOND_ORE,
-    HULL, ENGINE, HELM, CHEST, PAD, ELEVATOR_BASE, ELEVATOR_EDGE, WATER, LAVA,
+pub const ITEMS: [Block; 61] = [
+    STONE,
+    COBBLESTONE,
+    SMOOTH_STONE,
+    DEEPSLATE,
+    BASALT,
+    OBSIDIAN,
+    DIRT,
+    GRASS,
+    SAND,
+    SANDSTONE,
+    GRAVEL,
+    SNOW,
+    ICE,
+    CRYSTAL,
+    WOOD,
+    BIRCH_LOG,
+    PLANKS,
+    LEAVES,
+    BIRCH_LEAVES,
+    PINE_LEAVES,
+    ACACIA_LEAVES,
+    CACTUS,
+    GLASS,
+    GLASS_PANE,
+    FENCE,
+    DOOR,
+    TRAPDOOR,
+    LADDER,
+    TORCH,
+    CRAFTING_TABLE,
+    FURNACE,
+    TALL_GRASS,
+    POPPY,
+    DANDELION,
+    CORNFLOWER,
+    DEAD_BUSH,
+    COAL_ORE,
+    COPPER_ORE,
+    IRON_ORE,
+    GOLD_ORE,
+    REDSTONE_ORE,
+    DIAMOND_ORE,
+    DEEP_COAL_ORE,
+    DEEP_COPPER_ORE,
+    DEEP_IRON_ORE,
+    DEEP_GOLD_ORE,
+    DEEP_REDSTONE_ORE,
+    DEEP_DIAMOND_ORE,
+    HULL,
+    ENGINE,
+    HELM,
+    CHEST,
+    PAD,
+    ELEVATOR_BASE,
+    ELEVATOR_EDGE,
+    WATER,
+    LAVA,
+    TOMATO_0,
+    SUNFLOWER_0,
+    WHEAT_0,
+    PALTO_0,
 ];
 
 /// What the creative hotbar starts with.
@@ -343,6 +837,10 @@ pub const STARTER: [Block; 9] = [STONE, DIRT, GRASS, PLANKS, WOOD, GLASS, TORCH,
 /// either half of a door the door, a lit landing pad a pad, flowing water water.
 pub fn item(b: Block) -> Block {
     match b {
+        TOMATO_0..=TOMATO_3 => crate::items::TOMATO_SEEDS,
+        SUNFLOWER_0..=SUNFLOWER_3 => crate::items::SUNFLOWER_SEEDS,
+        WHEAT_0..=WHEAT_3 => crate::items::WHEAT_SEEDS,
+        PALTO_0 | PALTO_1 => crate::items::PALTO_SAPLING,
         _ if (WALL_TORCH..WALL_TORCH + 4).contains(&b) => TORCH,
         _ if (LADDER..LADDER + 4).contains(&b) => LADDER,
         _ if (DOOR..DOOR + 16).contains(&b) => DOOR,
@@ -362,7 +860,8 @@ pub fn drops(b: Block) -> Option<Block> {
     match b {
         STONE => Some(COBBLESTONE),
         GRASS => Some(DIRT),
-        GLASS | GLASS_PANE | ICE | TALL_GRASS | LEAVES | BIRCH_LEAVES | PINE_LEAVES | ACACIA_LEAVES | AIR | CORE | STATION_CORE => None,
+        GLASS | GLASS_PANE | ICE | TALL_GRASS | LEAVES | BIRCH_LEAVES | PINE_LEAVES
+        | ACACIA_LEAVES | AIR | CORE | STATION_CORE => None,
         _ if (DOOR + 8..DOOR + 16).contains(&b) => None,
         _ if is_liquid(b) => None,
         _ => Some(item(b)),
@@ -370,8 +869,8 @@ pub fn drops(b: Block) -> Option<Block> {
 }
 
 /// Most of one item a slot holds.
-pub fn max_stack(_item: Block) -> u8 {
-    64
+pub fn max_stack(item: Block) -> u8 {
+    crate::items::max_stack(item)
 }
 
 fn info(b: Block) -> &'static Info {
@@ -379,6 +878,9 @@ fn info(b: Block) -> &'static Info {
 }
 
 pub fn name(b: Block) -> &'static str {
+    if b >= ITEM_BASE {
+        return crate::items::name(b);
+    }
     info(b).name
 }
 
@@ -387,11 +889,18 @@ pub fn color(b: Block) -> [f32; 3] {
 }
 
 pub fn shape(b: Block) -> Shape {
+    // Items that are not blocks are flat pictures.
+    if b >= ITEM_BASE {
+        return Shape::Cross;
+    }
     info(b).shape
 }
 
 /// Tiles for (top, sides, bottom).
 pub fn tiles(b: Block) -> [u16; 3] {
+    if b >= ITEM_BASE {
+        return [crate::items::tile(b); 3];
+    }
     info(b).tiles
 }
 
@@ -517,7 +1026,10 @@ impl Dir {
     }
     /// (axis 0 = u or 1 = v, sign ±1).
     pub fn axis(self) -> (usize, f32) {
-        ((self.0 >> 1) as usize, if self.0 & 1 == 1 { 1.0 } else { -1.0 })
+        (
+            (self.0 >> 1) as usize,
+            if self.0 & 1 == 1 { 1.0 } else { -1.0 },
+        )
     }
 }
 
@@ -570,7 +1082,11 @@ pub fn is_top(b: Block) -> bool {
 }
 /// A door or trapdoor opened (closed if open); anything else as it is.
 pub fn toggled(b: Block) -> Block {
-    if is_door(b) || is_trapdoor(b) { b ^ 4 } else { b }
+    if is_door(b) || is_trapdoor(b) {
+        b ^ 4
+    } else {
+        b
+    }
 }
 
 /// Something a hand opens and closes (right click).
@@ -580,7 +1096,10 @@ pub fn opens(b: Block) -> bool {
 
 /// Foliage and grass take a regional tint so planets don't look flat-colored.
 pub fn tinted(b: Block) -> bool {
-    matches!(b, GRASS | LEAVES | BIRCH_LEAVES | PINE_LEAVES | ACACIA_LEAVES | TALL_GRASS)
+    matches!(
+        b,
+        GRASS | LEAVES | BIRCH_LEAVES | PINE_LEAVES | ACACIA_LEAVES | TALL_GRASS
+    )
 }
 
 #[cfg(test)]
@@ -596,7 +1115,10 @@ mod tests {
             }
         }
         assert_eq!(tile::NAMES[tile::ORE as usize], "coal_ore");
-        assert_eq!(tile::NAMES[tile::DEEP_ORE as usize + 5], "deepslate_diamond_ore");
+        assert_eq!(
+            tile::NAMES[tile::DEEP_ORE as usize + 5],
+            "deepslate_diamond_ore"
+        );
         assert_eq!(tile::NAMES[tile::DEAD_BUSH as usize], "dead_bush");
         assert_eq!(name(DEAD_BUSH), "Dead Bush");
         assert!(emission(TORCH) > 0 && !is_solid(TORCH) && !opaque(TALL_GRASS));
@@ -617,7 +1139,9 @@ mod tests {
             }
         }
         assert_eq!(Liquid::Lava.flowing(7), OBSIDIAN - 1);
-        assert!(liquid(OBSIDIAN).is_none() && !targetable(WATER) && !is_solid(LAVA) && !opaque(WATER));
+        assert!(
+            liquid(OBSIDIAN).is_none() && !targetable(WATER) && !is_solid(LAVA) && !opaque(WATER)
+        );
         assert!(emission(LAVA) == 15 && washable(TORCH) && !washable(STONE));
     }
 }

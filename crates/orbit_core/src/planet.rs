@@ -2,15 +2,15 @@
 //! All positions here are planet-local (origin at the planet's center), in blocks.
 
 use crate::block::{self, Block};
+use crate::caves;
+use crate::liquid::{self, Basin, Cells, Flow};
 use crate::player::Pull;
 use crate::rng::Rng;
 use crate::sphere::{CellId, CubeSphere, Side};
-use crate::caves;
-use crate::liquid::{self, Basin, Cells, Flow};
 use crate::trees;
 use glam::{DVec3, Quat, Vec3};
-use std::collections::HashSet;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use std::collections::HashSet;
 
 /// Layers of air above the highest terrain, room to build.
 pub const HEADROOM: usize = 64;
@@ -33,7 +33,13 @@ impl Biome {
     /// Planet types. Meadow, Desert and Frozen planets are temperate worlds with a climate (their
     /// columns get Forest, Meadow, Desert or Frozen by latitude, warmth and moisture); the
     /// others are one biome throughout.
-    pub const ALL: [Biome; 5] = [Biome::Meadow, Biome::Desert, Biome::Frozen, Biome::Barren, Biome::Crystal];
+    pub const ALL: [Biome; 5] = [
+        Biome::Meadow,
+        Biome::Desert,
+        Biome::Frozen,
+        Biome::Barren,
+        Biome::Crystal,
+    ];
 
     /// (top, subsurface, deep)
     pub fn layers(self) -> (Block, Block, Block) {
@@ -95,7 +101,11 @@ pub struct Spin {
 
 impl Default for Spin {
     fn default() -> Self {
-        Self { axis: Vec3::Y, speed: 0.0, phase: 0.0 }
+        Self {
+            axis: Vec3::Y,
+            speed: 0.0,
+            phase: 0.0,
+        }
     }
 }
 
@@ -270,8 +280,22 @@ pub struct Customization {
 impl Customization {
     pub fn of(spec: &PlanetSpec) -> Self {
         let normal = spec.orbit.tilt * Vec3::Y;
-        let tilt = spec.spin.axis.dot(normal).clamp(-1.0, 1.0).acos().to_degrees();
-        Self { radius: spec.radius, biome: spec.biome, seed: spec.seed, knobs: spec.knobs, day: std::f32::consts::TAU / spec.spin.speed.max(1e-6), tilt, radius_range: spec.radius_range() }
+        let tilt = spec
+            .spin
+            .axis
+            .dot(normal)
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees();
+        Self {
+            radius: spec.radius,
+            biome: spec.biome,
+            seed: spec.seed,
+            knobs: spec.knobs,
+            day: std::f32::consts::TAU / spec.spin.speed.max(1e-6),
+            tilt,
+            radius_range: spec.radius_range(),
+        }
     }
 
     /// Applies to `spec`, clamped to the allowed ranges. `t` is the universe time: the spin
@@ -284,7 +308,8 @@ impl Customization {
         spec.knobs = self.knobs.clamped();
         // Tilt the axis away from the orbit's normal, keeping the direction it leans in.
         let normal = spec.orbit.tilt * Vec3::Y;
-        let lean = (spec.spin.axis - normal * spec.spin.axis.dot(normal)).normalize_or(normal.any_orthonormal_vector());
+        let lean = (spec.spin.axis - normal * spec.spin.axis.dot(normal))
+            .normalize_or(normal.any_orthonormal_vector());
         let tilt = self.tilt.clamp(0.0, 90.0).to_radians();
         let axis = (normal * tilt.cos() + lean * tilt.sin()).normalize();
         if axis.angle_between(spec.spin.axis) > 1e-3 {
@@ -292,7 +317,8 @@ impl Customization {
         }
         let speed = std::f32::consts::TAU / self.day.clamp(60.0, 7200.0);
         let turned = |s: f32| (s as f64 * t).rem_euclid(std::f64::consts::TAU);
-        spec.spin.phase = (spec.spin.phase as f64 + turned(spec.spin.speed) - turned(speed)).rem_euclid(std::f64::consts::TAU) as f32;
+        spec.spin.phase = (spec.spin.phase as f64 + turned(spec.spin.speed) - turned(speed))
+            .rem_euclid(std::f64::consts::TAU) as f32;
         spec.spin.speed = speed;
         spec.advance(t);
     }
@@ -301,7 +327,20 @@ impl Customization {
 impl PlanetSpec {
     /// A planet at rest at the origin, as generated (no customization).
     pub fn new(id: u64, name: String, radius: f32, biome: Biome) -> Self {
-        Self { id, name, center: DVec3::ZERO, velocity: Vec3::ZERO, orbit: Orbit::default(), host: None, spin: Spin::default(), rotation: Quat::IDENTITY, radius, biome, seed: id, knobs: Gen::default() }
+        Self {
+            id,
+            name,
+            center: DVec3::ZERO,
+            velocity: Vec3::ZERO,
+            orbit: Orbit::default(),
+            host: None,
+            spin: Spin::default(),
+            rotation: Quat::IDENTITY,
+            radius,
+            biome,
+            seed: id,
+            knobs: Gen::default(),
+        }
     }
 
     /// The largest gravity radius any customization can give a planet: orbits are spaced by it,
@@ -329,12 +368,22 @@ impl PlanetSpec {
         if self.host.is_none() {
             return;
         }
-        let (gp, gm, a) = (host.gravity_radius(), self.gravity_radius(), self.orbit.radius);
-        self.host = Some(Host { id: host.id, orbit: host.orbit, soi: moon_soi(a, gm, gp) });
+        let (gp, gm, a) = (
+            host.gravity_radius(),
+            self.gravity_radius(),
+            self.orbit.radius,
+        );
+        self.host = Some(Host {
+            id: host.id,
+            orbit: host.orbit,
+            soi: moon_soi(a, gm, gp),
+        });
         let speed = self.orbit.speed.signum() * (crate::travel::mu(gp) / (a * a * a)).sqrt();
         let locked = (self.spin.speed - self.orbit.speed.abs()).abs() < 1e-6;
         let turned = |s: f32| (s as f64 * t).rem_euclid(std::f64::consts::TAU);
-        let keep = |phase: f32, old: f32, new: f32| (phase as f64 + turned(old) - turned(new)).rem_euclid(std::f64::consts::TAU) as f32;
+        let keep = |phase: f32, old: f32, new: f32| {
+            (phase as f64 + turned(old) - turned(new)).rem_euclid(std::f64::consts::TAU) as f32
+        };
         self.orbit.phase = keep(self.orbit.phase, self.orbit.speed, speed);
         if locked {
             self.spin.phase = keep(self.spin.phase, self.spin.speed, speed.abs());
@@ -350,7 +399,11 @@ impl PlanetSpec {
 
     /// The sizes it may be customized to: smaller for a moon.
     pub fn radius_range(&self) -> (f32, f32) {
-        if self.is_moon() { (MOON_MIN_RADIUS, MOON_MAX_RADIUS) } else { (MIN_RADIUS, MAX_RADIUS) }
+        if self.is_moon() {
+            (MOON_MIN_RADIUS, MOON_MAX_RADIUS)
+        } else {
+            (MIN_RADIUS, MAX_RADIUS)
+        }
     }
 
     /// Where its star is, world space.
@@ -363,7 +416,10 @@ impl PlanetSpec {
     pub fn pull(&self) -> Pull {
         let p = Pull::planet(self.gravity_radius());
         match self.host {
-            Some(h) => Pull { soi: p.soi.min(h.soi), ..p },
+            Some(h) => Pull {
+                soi: p.soi.min(h.soi),
+                ..p
+            },
             None => p,
         }
     }
@@ -391,7 +447,10 @@ impl PlanetSpec {
 
     /// Layers of ground under the mean surface, bedrock included: room for caves and ores.
     pub fn depth(&self) -> usize {
-        ((self.radius * 0.15) as usize).clamp(16, 40).min((self.radius * 0.5) as usize).max(4)
+        ((self.radius * 0.15) as usize)
+            .clamp(16, 40)
+            .min((self.radius * 0.5) as usize)
+            .max(4)
     }
     /// Height of the gentle base relief (plains and hills).
     pub fn amplitude(&self) -> f32 {
@@ -411,7 +470,9 @@ impl PlanetSpec {
     }
     /// How far the ocean basins sink under the land, blocks.
     pub fn ocean_depth(&self) -> f32 {
-        (self.radius * 0.08).clamp(6.0, 22.0).min(self.depth() as f32 * 0.6)
+        (self.radius * 0.08)
+            .clamp(6.0, 22.0)
+            .min(self.depth() as f32 * 0.6)
     }
     /// What fills the low ground: water on living worlds, lava on barren ones, nothing on crystal
     /// worlds; with how much of the planet it covers (before the `oceans` knob).
@@ -490,7 +551,11 @@ impl Column {
 
     /// Height of what you would stand on (or float on): the ground, or the sea over it.
     pub fn ground(&self) -> i64 {
-        if self.is_wet() { self.height.max(SEA_LEVEL) } else { self.height }
+        if self.is_wet() {
+            self.height.max(SEA_LEVEL)
+        } else {
+            self.height
+        }
     }
 }
 
@@ -506,13 +571,17 @@ impl Terrain {
         } + star_heat
             + spec.knobs.warmth * 0.5;
         Self {
-            height: Fbm::<Perlin>::new(seed).set_octaves(4).set_persistence(0.45),
+            height: Fbm::<Perlin>::new(seed)
+                .set_octaves(4)
+                .set_persistence(0.45),
             ranges: Fbm::<Perlin>::new(seed.wrapping_add(3)).set_octaves(2),
             ridges: Perlin::new(seed.wrapping_add(4)),
             warmth: Fbm::<Perlin>::new(seed.wrapping_add(1)).set_octaves(3),
             moisture: Fbm::<Perlin>::new(seed.wrapping_add(2)).set_octaves(3),
             soil: Perlin::new(seed.wrapping_add(5)),
-            continents: Fbm::<Perlin>::new(seed.wrapping_add(6)).set_octaves(4).set_persistence(0.5),
+            continents: Fbm::<Perlin>::new(seed.wrapping_add(6))
+                .set_octaves(4)
+                .set_persistence(0.5),
             rivers: Perlin::new(seed.wrapping_add(7)),
             sea: spec.sea().0,
             coverage: spec.sea().1 * spec.knobs.oceans,
@@ -530,7 +599,11 @@ impl Terrain {
     pub fn layers(&self, biome: Biome) -> (Block, Block, Block) {
         let (t, s, r) = biome.layers();
         let pick = |own: Block, chosen: Block| if chosen == block::AIR { own } else { chosen };
-        (pick(t, self.knobs.top), pick(s, self.knobs.soil), pick(r, self.knobs.stone))
+        (
+            pick(t, self.knobs.top),
+            pick(s, self.knobs.soil),
+            pick(r, self.knobs.stone),
+        )
     }
 
     fn sample(f: &impl NoiseFn<f64, 3>, d: Vec3, freq: f64) -> f32 {
@@ -554,9 +627,20 @@ impl Terrain {
         // Ocean basins where the continents noise runs low, their shelves sloping down from the
         // coast; the land stands a little over the sea, with lakes in its lowest hollows.
         let cont = Self::sample(&self.continents, d, 0.8);
-        let ocean = if self.coverage > 0.0 { smoothstep(0.0, 0.28, (self.coverage - 1.0) * 0.22 - 0.03 - cont) } else { 0.0 };
-        let lift = if self.sea == block::AIR { 0.0 } else { self.amp * 0.6 + 1.0 };
-        let mut h = base * (1.0 - 0.5 * ocean) + lift * (1.0 - ocean) + peak * self.mountains * (1.0 - 0.8 * ocean) - ocean * self.ocean_depth;
+        let ocean = if self.coverage > 0.0 {
+            smoothstep(0.0, 0.28, (self.coverage - 1.0) * 0.22 - 0.03 - cont)
+        } else {
+            0.0
+        };
+        let lift = if self.sea == block::AIR {
+            0.0
+        } else {
+            self.amp * 0.6 + 1.0
+        };
+        let mut h = base * (1.0 - 0.5 * ocean)
+            + lift * (1.0 - ocean)
+            + peak * self.mountains * (1.0 - 0.8 * ocean)
+            - ocean * self.ocean_depth;
         // Rivers: thin bands of noise cut valleys down to the sea's level and a channel under it,
         // through the lowlands (they die out climbing into the mountains).
         let wet = self.sea == block::WATER;
@@ -577,8 +661,11 @@ impl Terrain {
             Biome::Barren | Biome::Crystal => self.kind,
             _ => {
                 let lat = d.dot(self.axis);
-                let warmth = self.base_warmth - lat * lat * 0.75 + Self::sample(&self.warmth, d, 2.0) * 0.2 - lofty * 0.35;
-                let moisture = Self::sample(&self.moisture, d, 2.5) * 0.5 + 0.5 + self.knobs.moisture * 0.4;
+                let warmth = self.base_warmth - lat * lat * 0.75
+                    + Self::sample(&self.warmth, d, 2.0) * 0.2
+                    - lofty * 0.35;
+                let moisture =
+                    Self::sample(&self.moisture, d, 2.5) * 0.5 + 0.5 + self.knobs.moisture * 0.4;
                 if warmth < 0.2 {
                     Biome::Frozen
                 } else if warmth > 0.7 && moisture < 0.55 {
@@ -598,8 +685,13 @@ impl Terrain {
             _ if lofty > 0.38 && biome != Biome::Frozen => block::STONE, // bare rocky slopes
             _ => natural,
         };
-        let soil = ((Self::sample(&self.soil, d, 9.0) * 2.5 + 3.2).clamp(0.0, 6.0) * self.knobs.soil_depth) as usize;
-        let liquid = if height < SEA_LEVEL { self.sea } else { block::AIR };
+        let soil = ((Self::sample(&self.soil, d, 9.0) * 2.5 + 3.2).clamp(0.0, 6.0)
+            * self.knobs.soil_depth) as usize;
+        let liquid = if height < SEA_LEVEL {
+            self.sea
+        } else {
+            block::AIR
+        };
         // Sea floors: sand in the shallows, gravel deeper (basalt under lava); sandy beaches.
         let (top, bed) = if liquid == block::LAVA {
             (block::BASALT, false)
@@ -607,14 +699,35 @@ impl Terrain {
             (self.knobs.top, false)
         } else if liquid == block::WATER {
             let n = Self::sample(&self.soil, d, 23.0);
-            (if SEA_LEVEL - height <= 3 || (n > 0.25 && SEA_LEVEL - height <= 8) { block::SAND } else { block::GRAVEL }, true)
-        } else if wet && height <= SEA_LEVEL + 1 && lofty < 0.3 && biome != Biome::Frozen && self.knobs.top == block::AIR {
+            (
+                if SEA_LEVEL - height <= 3 || (n > 0.25 && SEA_LEVEL - height <= 8) {
+                    block::SAND
+                } else {
+                    block::GRAVEL
+                },
+                true,
+            )
+        } else if wet
+            && height <= SEA_LEVEL + 1
+            && lofty < 0.3
+            && biome != Biome::Frozen
+            && self.knobs.top == block::AIR
+        {
             (block::SAND, true)
         } else {
             (top, false)
         };
         let frozen = liquid == block::WATER && biome == Biome::Frozen;
-        Column { height, liquid, frozen, bed, biome, top, rocky: lofty > 0.38 && !bed, soil }
+        Column {
+            height,
+            liquid,
+            frozen,
+            bed,
+            biome,
+            top,
+            rocky: lofty > 0.38 && !bed,
+            soil,
+        }
     }
 }
 
@@ -666,17 +779,33 @@ impl Planet {
                     let col = terrain.column(grid.center(grid.index(f, i, j, 0)));
                     let (top, sub, deep) = terrain.layers(col.biome);
                     let surface = (depth as i64 + col.height).clamp(2, layers as i64 - 1) as usize; // layers below are solid
-                    let stone = |k: usize| if deep == block::STONE && k <= deep_top { block::DEEPSLATE } else { deep };
+                    let stone = |k: usize| {
+                        if deep == block::STONE && k <= deep_top {
+                            block::DEEPSLATE
+                        } else {
+                            deep
+                        }
+                    };
                     for k in 0..surface {
                         let below = surface - 1 - k; // 0: the top block
                         let b = if k == 0 {
                             block::CORE
                         } else if below == 0 {
-                            if col.soil == 0 && col.top == top && top != block::SAND { block::STONE } else { col.top }
+                            if col.soil == 0 && col.top == top && top != block::SAND {
+                                block::STONE
+                            } else {
+                                col.top
+                            }
                         } else if below <= col.soil {
                             if col.bed && below <= 2 {
                                 col.top
-                            } else if col.rocky { block::STONE } else if sub == block::SANDSTONE && below <= 2 { block::SAND } else { sub }
+                            } else if col.rocky {
+                                block::STONE
+                            } else if sub == block::SANDSTONE && below <= 2 {
+                                block::SAND
+                            } else {
+                                sub
+                            }
                         } else {
                             stone(k)
                         };
@@ -689,7 +818,14 @@ impl Planet {
         }
 
         // Caves, then each column's ground top again (caves open some to the sky).
-        for c in caves::carve(&grid, depth, &blocks, spec.seed, spec.knobs.caves, spec.knobs.cave_size) {
+        for c in caves::carve(
+            &grid,
+            depth,
+            &blocks,
+            spec.seed,
+            spec.knobs.caves,
+            spec.knobs.cave_size,
+        ) {
             blocks[c] = block::AIR;
         }
         let mut tops = vec![0usize; columns];
@@ -716,7 +852,11 @@ impl Planet {
             }
             let base = col * layers;
             for k in (tops[col] + 1)..sea_top {
-                blocks[base + k] = if c.frozen && k + 1 == sea_top { block::ICE } else { c.liquid };
+                blocks[base + k] = if c.frozen && k + 1 == sea_top {
+                    block::ICE
+                } else {
+                    c.liquid
+                };
             }
         }
         // Deep down, the lowest caves are lakes of lava, like Minecraft's.
@@ -738,13 +878,19 @@ impl Planet {
                 let col = rng.int(0, columns as i64 - 1) as usize;
                 let top = tops[col].min(depth + 4);
                 let f = rng.range(ore.from, ore.to);
-                let k = ((top as f32 - f * (top as f32 - 1.0)).round() as usize).clamp(1, layers - 1);
+                let k =
+                    ((top as f32 - f * (top as f32 - 1.0)).round() as usize).clamp(1, layers - 1);
                 let mut cell = col * layers + k;
                 for _ in 0..ore.size {
                     let b = blocks[cell];
                     if b == block::DEEPSLATE {
                         blocks[cell] = ore.deep;
-                    } else if b != block::AIR && b != block::CORE && b != block::DEEPSLATE && block::is_solid(b) && cell % layers + 4 < tops[cell / layers] {
+                    } else if b != block::AIR
+                        && b != block::CORE
+                        && b != block::DEEPSLATE
+                        && block::is_solid(b)
+                        && cell % layers + 4 < tops[cell / layers]
+                    {
                         blocks[cell] = ore.block; // veins run through whatever the rock is
                     }
                     match grid.neighbor(cell, Side::ALL[rng.int(0, 5) as usize]) {
@@ -758,7 +904,14 @@ impl Planet {
         // Trees first, then grass and flowers around them; only on the biome's own ground.
         let knobs = spec.knobs;
         let grounds: Vec<Block> = biomes.iter().map(|&b| terrain.layers(b).0).collect();
-        let mut p = Self { spec, grid, blocks, light: Vec::new(), placed: HashSet::new(), flow: Flow::default() };
+        let mut p = Self {
+            spec,
+            grid,
+            blocks,
+            light: Vec::new(),
+            placed: HashSet::new(),
+            flow: Flow::default(),
+        };
         let mut rng = Rng::new(p.spec.seed ^ 0x7EE5);
         let mut small = Vec::new();
         for col in 0..columns {
@@ -788,8 +941,23 @@ impl Planet {
         let layers = depth + spec.max_height().ceil() as usize + HEADROOM;
         let n = (std::f32::consts::FRAC_PI_2 * spec.radius).round().max(4.0) as usize;
         let grid = CubeSphere::new(n, spec.radius - depth as f32, layers);
-        let blocks = (0..grid.cell_count()).map(|c| if grid.coords(c).3 < ground { block::STONE } else { block::AIR }).collect();
-        let mut p = Self { spec, grid, blocks, light: Vec::new(), placed: HashSet::new(), flow: Flow::default() };
+        let blocks = (0..grid.cell_count())
+            .map(|c| {
+                if grid.coords(c).3 < ground {
+                    block::STONE
+                } else {
+                    block::AIR
+                }
+            })
+            .collect();
+        let mut p = Self {
+            spec,
+            grid,
+            blocks,
+            light: Vec::new(),
+            placed: HashSet::new(),
+            flow: Flow::default(),
+        };
         p.compute_light();
         p
     }
@@ -864,10 +1032,15 @@ impl Planet {
     /// open sky, or dying back under something opaque. The chunks changed.
     pub fn random_tick(&mut self, c: CellId) -> Vec<ChunkKey> {
         let b = self.blocks[c];
+        if let Some(next) = crate::crop::next(b) {
+            return self.put_block(c, next);
+        }
         if b != block::GRASS && b != block::DIRT {
             return Vec::new();
         }
-        let Some(up) = self.grid.neighbor(c, Side::Top) else { return Vec::new() };
+        let Some(up) = self.grid.neighbor(c, Side::Top) else {
+            return Vec::new();
+        };
         let lit = self.light(up).max(self.block_light(up)) >= 9;
         let near = b == block::DIRT && crate::shape::grass_near(self, c);
         match crate::shape::grass_tick(b, self.blocks[up], lit, near) {
@@ -897,7 +1070,10 @@ impl Planet {
             return Vec::new();
         }
         let mut flow = std::mem::take(&mut self.flow);
-        let mut basin = PlanetBasin { planet: self, dirty: HashSet::new() };
+        let mut basin = PlanetBasin {
+            planet: self,
+            dirty: HashSet::new(),
+        };
         flow.tick(&mut basin, liquid::BUDGET);
         let dirty = basin.dirty;
         self.flow = flow;
@@ -908,7 +1084,11 @@ impl Planet {
     pub fn fractions(&self, c: CellId, p: Vec3) -> (f32, f32, f32) {
         let (face, i, j, k) = self.grid.coords(c);
         let (a, b) = self.grid.face_coords(face, p.as_dvec3());
-        ((a - i as f64) as f32, (b - j as f64) as f32, p.length() - self.grid.radius(k))
+        (
+            (a - i as f64) as f32,
+            (b - j as f64) as f32,
+            p.length() - self.grid.radius(k),
+        )
     }
 
     /// Liquid cells waiting to flow.
@@ -924,7 +1104,9 @@ impl Planet {
         let mut keys = Vec::new();
         for cell in cells {
             // Faces sample the light of the cells in front of them, which may sit in a neighbor chunk.
-            let around = Side::ALL.into_iter().filter_map(|s| self.grid.neighbor(cell, s));
+            let around = Side::ALL
+                .into_iter()
+                .filter_map(|s| self.grid.neighbor(cell, s));
             for x in std::iter::once(cell).chain(around) {
                 let k = self.chunk_of(x);
                 if !keys.contains(&k) {
@@ -941,12 +1123,18 @@ impl Planet {
 
     pub fn chunk_of(&self, c: CellId) -> ChunkKey {
         let (f, i, j, _) = self.grid.coords(c);
-        ChunkKey { face: f as u8, ci: (i / CHUNK) as u16, cj: (j / CHUNK) as u16 }
+        ChunkKey {
+            face: f as u8,
+            ci: (i / CHUNK) as u16,
+            cj: (j / CHUNK) as u16,
+        }
     }
 
     pub fn all_chunks(&self) -> impl Iterator<Item = ChunkKey> + '_ {
         let m = self.chunks_per_side() as u16;
-        (0..6u8).flat_map(move |face| (0..m).flat_map(move |ci| (0..m).map(move |cj| ChunkKey { face, ci, cj })))
+        (0..6u8).flat_map(move |face| {
+            (0..m).flat_map(move |ci| (0..m).map(move |cj| ChunkKey { face, ci, cj }))
+        })
     }
 
     /// Cells of a chunk, column by column.
@@ -954,8 +1142,9 @@ impl Planet {
         let n = self.grid.n;
         let (i0, j0) = (key.ci as usize * CHUNK, key.cj as usize * CHUNK);
         (i0..(i0 + CHUNK).min(n)).flat_map(move |i| {
-            (j0..(j0 + CHUNK).min(n))
-                .flat_map(move |j| (0..self.grid.layers).map(move |k| self.grid.index(key.face as usize, i, j, k)))
+            (j0..(j0 + CHUNK).min(n)).flat_map(move |j| {
+                (0..self.grid.layers).map(move |k| self.grid.index(key.face as usize, i, j, k))
+            })
         })
     }
 
@@ -973,7 +1162,11 @@ impl Planet {
                     // Into its shape (a door's board, a flower's tuft), or past it.
                     let (u, v, w) = self.fractions(c, p);
                     if crate::shape::in_outline(b, crate::shape::joined(self, c), u, v, w) {
-                        return Some(RayHit { cell: c, before, point: p });
+                        return Some(RayHit {
+                            cell: c,
+                            before,
+                            point: p,
+                        });
                     }
                 } else {
                     before = Some(c);
@@ -993,7 +1186,10 @@ impl crate::shape::Around for Planet {
         self.blocks[p]
     }
     fn side(&self, p: CellId, d: block::Dir) -> Option<CellId> {
-        self.grid.neighbor(p, [Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus][d.0 as usize & 3])
+        self.grid.neighbor(
+            p,
+            [Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus][d.0 as usize & 3],
+        )
     }
     fn above(&self, p: CellId) -> Option<CellId> {
         self.grid.neighbor(p, Side::Top)
@@ -1079,8 +1275,16 @@ mod tests {
             p.advance(t);
         }
         let k = planets.iter().position(|p| p.is_moon()).unwrap();
-        let host = planets.iter().position(|p| p.id == planets[k].host.unwrap().id).unwrap();
-        let before = (planets[k].center - planets[host].center, planets[k].rotation, planets[k].orbit.speed, planets[k].host.unwrap().soi);
+        let host = planets
+            .iter()
+            .position(|p| p.id == planets[k].host.unwrap().id)
+            .unwrap();
+        let before = (
+            planets[k].center - planets[host].center,
+            planets[k].rotation,
+            planets[k].orbit.speed,
+            planets[k].host.unwrap().soi,
+        );
         let mut c = Customization::of(&planets[host]);
         c.radius = MAX_RADIUS;
         c.apply(&mut planets[host], t);
@@ -1099,7 +1303,12 @@ mod tests {
     fn surface_is_near_radius_everywhere() {
         let p = Planet::generate(spec());
         let amp = p.spec.max_height() + 14.0; // mountains and trees
-        for d in [Vec3::X, Vec3::NEG_Y, Vec3::new(1.0, 1.0, 1.0).normalize(), Vec3::new(-0.3, 0.2, -0.9).normalize()] {
+        for d in [
+            Vec3::X,
+            Vec3::NEG_Y,
+            Vec3::new(1.0, 1.0, 1.0).normalize(),
+            Vec3::new(-0.3, 0.2, -0.9).normalize(),
+        ] {
             let mut r = p.spec.ceiling();
             while !p.solid_at(d * r) {
                 r -= 0.1;
@@ -1124,7 +1333,11 @@ mod tests {
     #[test]
     fn customization_reshapes_and_keeps_the_spin_angle() {
         let mut s = spec();
-        s.spin = Spin { axis: Vec3::Y, speed: 0.01, phase: 0.3 };
+        s.spin = Spin {
+            axis: Vec3::Y,
+            speed: 0.01,
+            phase: 0.3,
+        };
         let t = 1234.5;
         s.advance(t);
         let before = s.rotation;
@@ -1144,7 +1357,12 @@ mod tests {
         // A new seed gives new terrain; the same seed, the same terrain.
         let col = |s: &PlanetSpec| Terrain::new(s).column(Vec3::new(0.3, 0.8, -0.2)).height;
         let mut a = spec();
-        let heights: Vec<i64> = (0..6).map(|k| { a.seed = k; col(&a) }).collect();
+        let heights: Vec<i64> = (0..6)
+            .map(|k| {
+                a.seed = k;
+                col(&a)
+            })
+            .collect();
         assert!(heights.iter().any(|&h| h != heights[0]));
         a.seed = 3;
         assert_eq!(col(&a), heights[3]);
@@ -1156,18 +1374,32 @@ mod tests {
         let count = |b: Block| p.blocks.iter().filter(|&&x| x == b).count();
         let (layers, depth) = (p.grid.layers, p.spec.depth());
         // Air below the mean surface, under rock: caves.
-        let caves = (0..p.grid.cell_count()).filter(|&c| c % layers > 0 && c % layers < depth - 6 && p.blocks[c] == block::AIR).count();
+        let caves = (0..p.grid.cell_count())
+            .filter(|&c| c % layers > 0 && c % layers < depth - 6 && p.blocks[c] == block::AIR)
+            .count();
         assert!(caves > 300, "caves {caves}");
         assert!(count(block::COAL_ORE) + count(block::DEEP_COAL_ORE) > 100);
         assert!(count(block::IRON_ORE) + count(block::DEEP_IRON_ORE) > 30);
         assert!(count(block::DEEPSLATE) > 1000);
-        assert!(count(block::TALL_GRASS) > 100, "grass {}", count(block::TALL_GRASS));
+        assert!(
+            count(block::TALL_GRASS) > 100,
+            "grass {}",
+            count(block::TALL_GRASS)
+        );
         assert!(count(block::POPPY) + count(block::DANDELION) + count(block::CORNFLOWER) > 10);
-        assert!((0..p.grid.cell_count() / layers).all(|col| p.blocks[col * layers] == block::CORE), "bedrock floor");
+        assert!(
+            (0..p.grid.cell_count() / layers).all(|col| p.blocks[col * layers] == block::CORE),
+            "bedrock floor"
+        );
         let mut flat = PlanetSpec::new(21, "g".into(), 90.0, Biome::Meadow);
         flat.knobs.caves = 0.0;
         let q = Planet::generate(flat);
-        assert_eq!((0..q.grid.cell_count()).filter(|&c| c % layers > 0 && c % layers < depth - 6 && q.blocks[c] == block::AIR).count(), 0);
+        assert_eq!(
+            (0..q.grid.cell_count())
+                .filter(|&c| c % layers > 0 && c % layers < depth - 6 && q.blocks[c] == block::AIR)
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -1184,13 +1416,22 @@ mod tests {
         let mut tops = std::collections::HashMap::new();
         for col in 0..p.grid.cell_count() / layers {
             let ground = |b: Block| b != block::AIR && !block::is_liquid(b) && b != block::ICE;
-            let k = (0..layers).rev().find(|&k| ground(p.get(col * layers + k))).unwrap();
+            let k = (0..layers)
+                .rev()
+                .find(|&k| ground(p.get(col * layers + k)))
+                .unwrap();
             *tops.entry(p.get(col * layers + k)).or_insert(0) += 1;
         }
         assert_eq!(tops.len(), 1, "only sand on top: {tops:?}");
         assert!(tops.contains_key(&block::SAND));
         assert!(p.blocks.iter().filter(|&&b| b == block::BASALT).count() > 10_000);
-        assert_eq!(p.blocks.iter().filter(|&&b| b == block::TALL_GRASS || b == block::WOOD).count(), 0);
+        assert_eq!(
+            p.blocks
+                .iter()
+                .filter(|&&b| b == block::TALL_GRASS || b == block::WOOD)
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -1199,13 +1440,21 @@ mod tests {
         let terrain = Terrain::new(&p.spec);
         let g = &p.grid;
         let columns = g.cell_count() / g.layers;
-        let cols: Vec<Column> = (0..columns).map(|col| terrain.column(g.center(col * g.layers))).collect();
+        let cols: Vec<Column> = (0..columns)
+            .map(|col| terrain.column(g.center(col * g.layers)))
+            .collect();
         let wet = cols.iter().filter(|c| c.is_wet()).count() as f32 / columns as f32;
         assert!((0.2..0.7).contains(&wet), "seas cover {:.0}%", wet * 100.0);
-        assert!(cols.iter().filter(|c| c.height < -8).count() > columns / 20, "the seas are deep in places");
+        assert!(
+            cols.iter().filter(|c| c.height < -8).count() > columns / 20,
+            "the seas are deep in places"
+        );
         let sea = p.blocks.iter().filter(|&&b| b == block::WATER).count();
         assert!(sea > columns / 5, "{sea} water cells");
-        assert!(p.blocks.iter().filter(|&&b| b == block::SAND).count() > columns / 20, "beaches and shallows");
+        assert!(
+            p.blocks.iter().filter(|&&b| b == block::SAND).count() > columns / 20,
+            "beaches and shallows"
+        );
         // Water stands still where it was made: nothing is flowing yet.
         assert!(p.flow.is_idle());
         // The sea's surface is level: every wet column's water reaches the sea's level, no higher.
@@ -1213,7 +1462,11 @@ mod tests {
         for (col, c) in cols.iter().enumerate().step_by(37) {
             if c.is_wet() {
                 let b = p.blocks[col * g.layers + top as usize - 1];
-                assert!(b == block::WATER || b == block::ICE, "column {col}: {}", block::name(b));
+                assert!(
+                    b == block::WATER || b == block::ICE,
+                    "column {col}: {}",
+                    block::name(b)
+                );
                 assert!(!block::is_liquid(p.blocks[col * g.layers + top as usize]));
             }
         }
@@ -1222,7 +1475,10 @@ mod tests {
         // A barren world has seas of lava, a crystal one none.
         let b = Planet::generate(PlanetSpec::new(8, "b".into(), 90.0, Biome::Barren));
         let lava = b.blocks.iter().filter(|&&x| x == block::LAVA).count();
-        assert!(lava > 1000 && !b.blocks.contains(&block::WATER), "{lava} lava");
+        assert!(
+            lava > 1000 && !b.blocks.contains(&block::WATER),
+            "{lava} lava"
+        );
     }
 
     #[test]

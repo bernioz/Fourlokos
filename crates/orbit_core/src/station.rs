@@ -13,11 +13,11 @@
 
 use crate::block::{self, Block};
 use crate::light;
-use crate::player::{Pull, GRAVITY};
+use crate::liquid::{self, Basin, Cells, Flow};
+use crate::player::{GRAVITY, Pull};
 use crate::schematic::Schematic;
 use crate::travel::{circular_speed, mu};
 use glam::{DQuat, DVec3, IVec3, Quat, Vec3};
-use crate::liquid::{self, Basin, Cells, Flow};
 use std::collections::VecDeque;
 
 /// Farthest a block may be from the core sideways (x and z).
@@ -53,11 +53,17 @@ pub struct Bounds {
 
 impl Bounds {
     pub fn starter() -> Self {
-        Self { min: IVec3::new(-START, 0, -START), max: IVec3::new(START, 0, START) }
+        Self {
+            min: IVec3::new(-START, 0, -START),
+            max: IVec3::new(START, 0, START),
+        }
     }
 
     pub fn with(self, p: IVec3) -> Self {
-        Self { min: self.min.min(p), max: self.max.max(p) }
+        Self {
+            min: self.min.min(p),
+            max: self.max.max(p),
+        }
     }
 
     /// Size in blocks (x, y, z).
@@ -70,7 +76,10 @@ impl Bounds {
     }
 
     fn grown(&self, by: i32) -> Self {
-        Self { min: self.min - IVec3::splat(by), max: self.max + IVec3::splat(by) }
+        Self {
+            min: self.min - IVec3::splat(by),
+            max: self.max + IVec3::splat(by),
+        }
     }
 }
 
@@ -90,10 +99,14 @@ pub enum Refusal {
 impl Refusal {
     pub fn message(self) -> &'static str {
         match self {
-            Refusal::NotInOrbit => "Stations go in orbit: above a planet's atmosphere, within its pull",
+            Refusal::NotInOrbit => {
+                "Stations go in orbit: above a planet's atmosphere, within its pull"
+            }
             Refusal::Full => "No room in the orbits here: every lane near is taken",
             Refusal::TooMany => "Too many stations here",
-            Refusal::NoSync => "This planet's day is too long for a synchronous orbit within its pull",
+            Refusal::NoSync => {
+                "This planet's day is too long for a synchronous orbit within its pull"
+            }
         }
     }
 }
@@ -105,7 +118,8 @@ impl Refusal {
 pub const LANE: f32 = 120.0;
 /// Least distance between the origins of two stations in one lane: two of the widest stations
 /// side by side, corner to corner, with their gravity and room to spare.
-pub const LANE_GAP: f64 = 2.0 * (HALF_SPAN as f64 * std::f64::consts::SQRT_2 + GRAVITY_SIDE as f64) + 16.0;
+pub const LANE_GAP: f64 =
+    2.0 * (HALF_SPAN as f64 * std::f64::consts::SQRT_2 + GRAVITY_SIDE as f64) + 16.0;
 /// How much nearer stations may come between the samples of `StationOrbit::clear_of`.
 const SAMPLE_SLACK: f64 = 16.0;
 /// Lanes leave this much of the sphere of influence's edge clear, past the station's top.
@@ -126,9 +140,18 @@ impl Lanes {
         let low = pull.gravity_radius - MIN_Y as f32 + GRAVITY_BELOW + CLEAR;
         let high = pull.soi - pull.taper() - (MAX_Y + 1) as f32 - GRAVITY_ABOVE - LANE_TOP_CLEAR;
         let (below, above) = reach();
-        let free = |r: f32| moons.iter().all(|&(lo, hi)| r + above < lo || r - below > hi);
-        let sync = sync_radius(pull.gravity_radius, spin).filter(|&r| (low..=high).contains(&r) && free(r));
-        let mut radii: Vec<f32> = (0..).map(|k| low + k as f32 * LANE).take_while(|&r| r <= high).filter(|&r| free(r) && sync.is_none_or(|s| (r - s).abs() >= LANE)).collect();
+        let free = |r: f32| {
+            moons
+                .iter()
+                .all(|&(lo, hi)| r + above < lo || r - below > hi)
+        };
+        let sync = sync_radius(pull.gravity_radius, spin)
+            .filter(|&r| (low..=high).contains(&r) && free(r));
+        let mut radii: Vec<f32> = (0..)
+            .map(|k| low + k as f32 * LANE)
+            .take_while(|&r| r <= high)
+            .filter(|&r| free(r) && sync.is_none_or(|s| (r - s).abs() >= LANE))
+            .collect();
         radii.extend(sync);
         radii.sort_by(f32::total_cmp);
         Self { radii, sync }
@@ -151,21 +174,31 @@ impl Lanes {
     pub fn without(mut self, bands: &[(f32, f32)]) -> Self {
         let (below, above) = reach();
         let sync = self.sync;
-        self.radii.retain(|&r| sync.is_some_and(|s| (s - r).abs() < 0.5) || bands.iter().all(|&(lo, hi)| r + above < lo || r - below > hi));
+        self.radii.retain(|&r| {
+            sync.is_some_and(|s| (s - r).abs() < 0.5)
+                || bands
+                    .iter()
+                    .all(|&(lo, hi)| r + above < lo || r - below > hi)
+        });
         self
     }
 }
 
 /// How far a lane's station reaches below and above its origin, with room to spare.
 fn reach() -> (f32, f32) {
-    (-MIN_Y as f32 + GRAVITY_BELOW + CLEAR, (MAX_Y + 1) as f32 + GRAVITY_ABOVE + CLEAR)
+    (
+        -MIN_Y as f32 + GRAVITY_BELOW + CLEAR,
+        (MAX_Y + 1) as f32 + GRAVITY_ABOVE + CLEAR,
+    )
 }
 
 /// Radius of the circular orbit that goes round once a planet day (`spin` rad/s), where an
 /// orbit keeps over one spot of the equator: what a space elevator hangs from. None for a planet
 /// that does not turn.
 pub fn sync_radius(gravity_radius: f32, spin: f32) -> Option<f32> {
-    (spin.abs() > 1e-6).then(|| (mu(gravity_radius) / (spin * spin)).cbrt()).filter(|&r| r > gravity_radius)
+    (spin.abs() > 1e-6)
+        .then(|| (mu(gravity_radius) / (spin * spin)).cbrt())
+        .filter(|&r| r > gravity_radius)
 }
 
 /// How a station goes around its planet: a circle through `start` (relative to the planet's
@@ -185,12 +218,29 @@ pub struct StationOrbit {
 impl StationOrbit {
     /// A circular orbit through `center` (relative to the planet), turned `turn` there. The orbit
     /// goes the way `heading` points (the player's motion around the planet); with none, any way.
-    pub fn through(planet: u64, center: Vec3, turn: Quat, heading: Vec3, pull: Pull, t0: f64) -> Self {
+    pub fn through(
+        planet: u64,
+        center: Vec3,
+        turn: Quat,
+        heading: Vec3,
+        pull: Pull,
+        t0: f64,
+    ) -> Self {
         let r = center.length().max(1.0);
         let radial = center / r;
-        let axis = radial.cross(heading).try_normalize().unwrap_or_else(|| radial.any_orthonormal_vector());
+        let axis = radial
+            .cross(heading)
+            .try_normalize()
+            .unwrap_or_else(|| radial.any_orthonormal_vector());
         let rate = circular_speed(r, pull) / r;
-        Self { planet, start: center.as_dvec3(), turn: turn.as_dquat(), axis: axis.as_dvec3(), rate: rate as f64, t0 }
+        Self {
+            planet,
+            start: center.as_dvec3(),
+            turn: turn.as_dquat(),
+            axis: axis.as_dvec3(),
+            rate: rate as f64,
+            t0,
+        }
     }
 
     fn spin(&self, t: f64) -> DQuat {
@@ -200,19 +250,32 @@ impl StationOrbit {
     /// The same orbit, counted from time `t`: where it is then becomes its start.
     pub fn rebased(&self, t: f64) -> Self {
         let spin = self.spin(t);
-        Self { start: spin * self.start, turn: (spin * self.turn).normalize(), t0: t, ..*self }
+        Self {
+            start: spin * self.start,
+            turn: (spin * self.turn).normalize(),
+            t0: t,
+            ..*self
+        }
     }
 
     /// The same station moved along its orbit by `angle` (radians, the way it goes).
     pub fn shifted(&self, angle: f64) -> Self {
         let q = DQuat::from_axis_angle(self.axis, angle);
-        Self { start: q * self.start, turn: (q * self.turn).normalize(), ..*self }
+        Self {
+            start: q * self.start,
+            turn: (q * self.turn).normalize(),
+            ..*self
+        }
     }
 
     /// Moved (at its `t0`) to radius `r`, going round at `rate`; turned with the move so its floor
     /// stays toward the planet.
     pub fn raised(&self, r: f32, rate: f64) -> Self {
-        Self { start: self.start.normalize() * r as f64, rate, ..*self }
+        Self {
+            start: self.start.normalize() * r as f64,
+            rate,
+            ..*self
+        }
     }
 
     /// Moved (at its `t0`) into the plane of the equator of a planet turning about `axis` (unit)
@@ -220,9 +283,17 @@ impl StationOrbit {
     pub fn equatorial(&self, axis: DVec3, spin: f64) -> Self {
         let r = self.start.length();
         let flat = self.start.reject_from(axis);
-        let dir = flat.try_normalize().unwrap_or_else(|| axis.any_orthonormal_vector());
+        let dir = flat
+            .try_normalize()
+            .unwrap_or_else(|| axis.any_orthonormal_vector());
         let q = DQuat::from_rotation_arc(self.start / r, dir);
-        Self { start: dir * r, turn: (q * self.turn).normalize(), axis: axis * spin.signum(), rate: spin.abs(), ..*self }
+        Self {
+            start: dir * r,
+            turn: (q * self.turn).normalize(),
+            axis: axis * spin.signum(),
+            rate: spin.abs(),
+            ..*self
+        }
     }
 
     /// Where the core's corner (station origin) is at time `t`, relative to the planet's center.
@@ -278,7 +349,13 @@ impl StationOrbit {
 /// in the lane nearest its height, as near along its orbit as there is room, else in the next
 /// lanes out. `rate` gives the coasting rate at a radius. With `sync`, only the synchronous lane,
 /// in the equator's plane (`equator`: the planet's spin axis and rate).
-pub fn find_slot(want: &StationOrbit, lanes: &Lanes, others: &[StationOrbit], rate: impl Fn(f32) -> f64, equator: Option<(DVec3, f64)>) -> Result<StationOrbit, Refusal> {
+pub fn find_slot(
+    want: &StationOrbit,
+    lanes: &Lanes,
+    others: &[StationOrbit],
+    rate: impl Fn(f32) -> f64,
+    equator: Option<(DVec3, f64)>,
+) -> Result<StationOrbit, Refusal> {
     if others.len() >= MAX_PER_PLANET {
         return Err(Refusal::TooMany);
     }
@@ -311,7 +388,11 @@ pub fn find_slot(want: &StationOrbit, lanes: &Lanes, others: &[StationOrbit], ra
 pub fn sun_height(rel: Vec3, sun: Vec3, planet_radius: f32) -> f32 {
     // Distance out of the shadow: above the sunlit half, how high over the ground; behind the
     // planet, how far off the shadow's edge (the two agree at the terminator).
-    let out = if rel.dot(sun) >= 0.0 { rel.length() } else { rel.reject_from(sun).length() };
+    let out = if rel.dot(sun) >= 0.0 {
+        rel.length()
+    } else {
+        rel.reject_from(sun).length()
+    };
     // 0.6 radius off the edge counts as the sun (or the night) fully up; the shader dims
     // the sky from about a fifth of a radius inside the shadow to a tenth outside it.
     ((out - planet_radius) / (0.6 * planet_radius)).clamp(-1.0, 1.0)
@@ -386,7 +467,13 @@ pub struct Station {
 impl Station {
     /// A new station: the starter slab of `slab` blocks, the core in its middle at (0, 0, 0).
     pub fn new(id: String, name: &str, slab: Block) -> Self {
-        let mut s = Self::empty(id, clean_name(name), Kind::Station, IVec3::ZERO, Bounds::starter());
+        let mut s = Self::empty(
+            id,
+            clean_name(name),
+            Kind::Station,
+            IVec3::ZERO,
+            Bounds::starter(),
+        );
         for x in -START..=START {
             for z in -START..=START {
                 s.put(IVec3::new(x, 0, z), slab);
@@ -399,13 +486,27 @@ impl Station {
     /// Its blocks within its bounds, as a schematic.
     pub fn to_schematic(&self) -> Schematic {
         let b = self.bounds;
-        Schematic { name: self.name.clone(), min: b.min, size: b.span(), blocks: self.cells().map(|(_, b)| b).collect() }
+        Schematic {
+            name: self.name.clone(),
+            min: b.min,
+            size: b.span(),
+            blocks: self.cells().map(|(_, b)| b).collect(),
+        }
     }
 
     /// A packed station built from a schematic (blocks past the limits are left out). Its core
     /// stays a core, whatever the schematic has there.
     pub fn from_schematic(id: String, name: Option<&str>, s: &Schematic) -> Self {
-        let mut st = Self::empty(id, clean_name(name.unwrap_or(&s.name)), Kind::Station, IVec3::ZERO, Bounds { min: IVec3::ZERO, max: IVec3::ZERO });
+        let mut st = Self::empty(
+            id,
+            clean_name(name.unwrap_or(&s.name)),
+            Kind::Station,
+            IVec3::ZERO,
+            Bounds {
+                min: IVec3::ZERO,
+                max: IVec3::ZERO,
+            },
+        );
         for (p, b) in s.solid_cells() {
             st.set(p, b);
         }
@@ -415,8 +516,22 @@ impl Station {
 
     /// A rocket of these blocks (rocket coordinates: (0, 0, 0) is the middle of its base), flown
     /// from its helm at `helm`. Blocks past the limits are left out.
-    pub fn rocket(id: String, name: &str, blocks: impl IntoIterator<Item = (IVec3, Block)>, helm: IVec3) -> Self {
-        let mut s = Self::empty(id, clean_rocket_name(name), Kind::Rocket, helm, Bounds { min: helm, max: helm });
+    pub fn rocket(
+        id: String,
+        name: &str,
+        blocks: impl IntoIterator<Item = (IVec3, Block)>,
+        helm: IVec3,
+    ) -> Self {
+        let mut s = Self::empty(
+            id,
+            clean_rocket_name(name),
+            Kind::Rocket,
+            helm,
+            Bounds {
+                min: helm,
+                max: helm,
+            },
+        );
         for (p, b) in blocks {
             s.set(p, b);
         }
@@ -424,7 +539,18 @@ impl Station {
     }
 
     fn empty(id: String, name: String, kind: Kind, core: IVec3, bounds: Bounds) -> Self {
-        Self { id, name, kind, core, blocks: vec![block::AIR; SIZE_XZ * SIZE_XZ * SIZE_Y], bounds, orbit: None, flight: None, glide: None, flow: Flow::default() }
+        Self {
+            id,
+            name,
+            kind,
+            core,
+            blocks: vec![block::AIR; SIZE_XZ * SIZE_XZ * SIZE_Y],
+            bounds,
+            orbit: None,
+            flight: None,
+            glide: None,
+            flow: Flow::default(),
+        }
     }
 
     pub fn is_rocket(&self) -> bool {
@@ -454,7 +580,14 @@ impl Station {
             Some(o) => {
                 out.push(1);
                 out.extend(o.planet.to_le_bytes());
-                for v in o.start.to_array().into_iter().chain(o.turn.to_array()).chain(o.axis.to_array()).chain([o.rate, o.t0]) {
+                for v in o
+                    .start
+                    .to_array()
+                    .into_iter()
+                    .chain(o.turn.to_array())
+                    .chain(o.axis.to_array())
+                    .chain([o.rate, o.t0])
+                {
                     out.extend(v.to_le_bytes());
                 }
             }
@@ -480,7 +613,11 @@ impl Station {
         let len = u32::from_le_bytes(take(4)?.try_into().unwrap()) as usize;
         let id = String::from_utf8(take(len)?.to_vec()).map_err(|_| "Bad id")?;
         let (kind, core) = if version >= 2 {
-            let kind = if take(1)?[0] == 1 { Kind::Rocket } else { Kind::Station };
+            let kind = if take(1)?[0] == 1 {
+                Kind::Rocket
+            } else {
+                Kind::Station
+            };
             let mut c = [0i32; 3];
             for x in &mut c {
                 *x = i32::from_le_bytes(take(4)?.try_into().unwrap());
@@ -496,7 +633,14 @@ impl Station {
                 *x = f64::from_le_bytes(take(8)?.try_into().unwrap());
             }
             let turn = DQuat::from_array([v[3], v[4], v[5], v[6]]);
-            Some(StationOrbit { planet, start: DVec3::new(v[0], v[1], v[2]), turn, axis: DVec3::new(v[7], v[8], v[9]), rate: v[10], t0: v[11] })
+            Some(StationOrbit {
+                planet,
+                start: DVec3::new(v[0], v[1], v[2]),
+                turn,
+                axis: DVec3::new(v[7], v[8], v[9]),
+                rate: v[10],
+                t0: v[11],
+            })
         } else {
             None
         };
@@ -517,12 +661,18 @@ impl Station {
 
     /// Whether a block may be at `p` at all: within the limits around the core.
     pub fn in_limits(p: IVec3) -> bool {
-        (-HALF_SPAN..HALF_SPAN).contains(&p.x) && (-HALF_SPAN..HALF_SPAN).contains(&p.z) && (MIN_Y..=MAX_Y).contains(&p.y)
+        (-HALF_SPAN..HALF_SPAN).contains(&p.x)
+            && (-HALF_SPAN..HALF_SPAN).contains(&p.z)
+            && (MIN_Y..=MAX_Y).contains(&p.y)
     }
 
     fn index(p: IVec3) -> Option<usize> {
         Self::in_limits(p).then(|| {
-            let (x, y, z) = ((p.x + HALF_SPAN) as usize, (p.y - MIN_Y) as usize, (p.z + HALF_SPAN) as usize);
+            let (x, y, z) = (
+                (p.x + HALF_SPAN) as usize,
+                (p.y - MIN_Y) as usize,
+                (p.z + HALF_SPAN) as usize,
+            );
             (y * SIZE_XZ + z) * SIZE_XZ + x
         })
     }
@@ -569,7 +719,10 @@ impl Station {
     /// Where liquids may be (inclusive corners): the station's gravity, around its blocks. Past
     /// it they fall away into space.
     pub fn liquid_box(&self) -> (IVec3, IVec3) {
-        (self.bounds.min - IVec3::new(1, GRAVITY_BELOW as i32, 1), self.bounds.max + IVec3::new(1, GRAVITY_ABOVE as i32, 1))
+        (
+            self.bounds.min - IVec3::new(1, GRAVITY_BELOW as i32, 1),
+            self.bounds.max + IVec3::new(1, GRAVITY_ABOVE as i32, 1),
+        )
     }
 
     /// Liquid cells outside the bounds (falling off the edge, spilling over the rim).
@@ -577,7 +730,9 @@ impl Station {
         let (lo, hi) = self.liquid_box();
         let b = self.bounds;
         (lo.y..=hi.y)
-            .flat_map(move |y| (lo.z..=hi.z).flat_map(move |z| (lo.x..=hi.x).map(move |x| IVec3::new(x, y, z))))
+            .flat_map(move |y| {
+                (lo.z..=hi.z).flat_map(move |z| (lo.x..=hi.x).map(move |x| IVec3::new(x, y, z)))
+            })
             .filter(move |&p| !(p.cmpge(b.min).all() && p.cmple(b.max).all()))
             .map(|p| (p, self.get(p)))
             .filter(|&(_, b)| block::is_liquid(b))
@@ -649,14 +804,24 @@ impl Station {
     /// Every cell inside the bounds, with its block.
     pub fn cells(&self) -> impl Iterator<Item = (IVec3, Block)> + '_ {
         let b = self.bounds;
-        (b.min.y..=b.max.y).flat_map(move |y| (b.min.z..=b.max.z).flat_map(move |z| (b.min.x..=b.max.x).map(move |x| IVec3::new(x, y, z))))
+        (b.min.y..=b.max.y)
+            .flat_map(move |y| {
+                (b.min.z..=b.max.z)
+                    .flat_map(move |z| (b.min.x..=b.max.x).map(move |x| IVec3::new(x, y, z)))
+            })
             .map(|p| (p, self.get(p)))
     }
 
     /// Where the station's own gravity reaches, local: (min, max) corners.
     pub fn gravity_box(&self) -> (Vec3, Vec3) {
-        let (lo, hi) = (self.bounds.min.as_vec3(), (self.bounds.max + IVec3::ONE).as_vec3());
-        (lo - Vec3::new(GRAVITY_SIDE, GRAVITY_BELOW, GRAVITY_SIDE), hi + Vec3::new(GRAVITY_SIDE, GRAVITY_ABOVE, GRAVITY_SIDE))
+        let (lo, hi) = (
+            self.bounds.min.as_vec3(),
+            (self.bounds.max + IVec3::ONE).as_vec3(),
+        );
+        (
+            lo - Vec3::new(GRAVITY_SIDE, GRAVITY_BELOW, GRAVITY_SIDE),
+            hi + Vec3::new(GRAVITY_SIDE, GRAVITY_ABOVE, GRAVITY_SIDE),
+        )
     }
 
     /// True if a local point is in the station's gravity.
@@ -678,10 +843,24 @@ impl Station {
         }
         // Voxel traversal (Amanatides & Woo).
         let mut cell = Self::cell_at(from);
-        let step = IVec3::new(dir.x.signum() as i32, dir.y.signum() as i32, dir.z.signum() as i32);
+        let step = IVec3::new(
+            dir.x.signum() as i32,
+            dir.y.signum() as i32,
+            dir.z.signum() as i32,
+        );
         let next = |c: i32, s: i32| (c + (s > 0) as i32) as f32;
-        let t_for = |o: f32, d: f32, c: i32, s: i32| if d.abs() < 1e-9 { f32::INFINITY } else { (next(c, s) - o) / d };
-        let mut t_max = Vec3::new(t_for(from.x, dir.x, cell.x, step.x), t_for(from.y, dir.y, cell.y, step.y), t_for(from.z, dir.z, cell.z, step.z));
+        let t_for = |o: f32, d: f32, c: i32, s: i32| {
+            if d.abs() < 1e-9 {
+                f32::INFINITY
+            } else {
+                (next(c, s) - o) / d
+            }
+        };
+        let mut t_max = Vec3::new(
+            t_for(from.x, dir.x, cell.x, step.x),
+            t_for(from.y, dir.y, cell.y, step.y),
+            t_for(from.z, dir.z, cell.z, step.z),
+        );
         let t_delta = Vec3::new(1.0 / dir.x.abs(), 1.0 / dir.y.abs(), 1.0 / dir.z.abs());
         let mut before = None;
         let mut t = 0.0;
@@ -690,9 +869,18 @@ impl Station {
             if block::targetable(b) {
                 // Into its shape (a door's board, a flower's tuft), or past it.
                 let o = from - cell.as_vec3();
-                let into = crate::shape::outline(b, crate::shape::joined(self, cell)).iter().filter_map(|c| crate::shape::ray_box([o.x, o.z, o.y], [dir.x, dir.z, dir.y], c)).reduce(f32::min);
+                let into = crate::shape::outline(b, crate::shape::joined(self, cell))
+                    .iter()
+                    .filter_map(|c| {
+                        crate::shape::ray_box([o.x, o.z, o.y], [dir.x, dir.z, dir.y], c)
+                    })
+                    .reduce(f32::min);
                 if let Some(t) = into.filter(|&t| t <= reach) {
-                    return Some(Hit { cell, before, point: from + dir * t.max(0.0) });
+                    return Some(Hit {
+                        cell,
+                        before,
+                        point: from + dir * t.max(0.0),
+                    });
                 }
             } else {
                 before = Some(cell);
@@ -805,7 +993,12 @@ impl Light {
         let b = s.bounds.grown(2);
         let (lo, size) = (b.min, b.span());
         let n = (size.x * size.y * size.z) as usize;
-        let mut l = Self { lo, size, sky: vec![0; n], glow: vec![0; n] };
+        let mut l = Self {
+            lo,
+            size,
+            sky: vec![0; n],
+            glow: vec![0; n],
+        };
         let mut sky = VecDeque::new();
         let mut glow = VecDeque::new();
         // Sunlight falls straight down each column until something stops it; it comes in from
@@ -839,11 +1032,19 @@ impl Light {
 
     fn index(&self, p: IVec3) -> Option<usize> {
         let d = p - self.lo;
-        (d.cmpge(IVec3::ZERO).all() && d.cmplt(self.size).all()).then(|| ((d.y * self.size.z + d.z) * self.size.x + d.x) as usize)
+        (d.cmpge(IVec3::ZERO).all() && d.cmplt(self.size).all())
+            .then(|| ((d.y * self.size.z + d.z) * self.size.x + d.x) as usize)
     }
 
     fn flood(&mut self, s: &Station, field: usize, mut queue: VecDeque<IVec3>) {
-        const DIRS: [IVec3; 6] = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z];
+        const DIRS: [IVec3; 6] = [
+            IVec3::X,
+            IVec3::NEG_X,
+            IVec3::Y,
+            IVec3::NEG_Y,
+            IVec3::Z,
+            IVec3::NEG_Z,
+        ];
         while let Some(p) = queue.pop_front() {
             let level = self.level(field, p);
             if level <= 1 {
@@ -852,7 +1053,11 @@ impl Light {
             for d in DIRS {
                 let q = p + d;
                 let Some(i) = self.index(q) else { continue };
-                let v = if field == 0 { &mut self.sky } else { &mut self.glow };
+                let v = if field == 0 {
+                    &mut self.sky
+                } else {
+                    &mut self.glow
+                };
                 if v[i] + 1 < level && !s.opaque(q) {
                     v[i] = level - 1;
                     queue.push_back(q);
@@ -863,8 +1068,20 @@ impl Light {
 
     fn level(&self, field: usize, p: IVec3) -> u8 {
         match self.index(p) {
-            Some(i) => if field == 0 { self.sky[i] } else { self.glow[i] },
-            None => if field == 0 { light::MAX } else { 0 },
+            Some(i) => {
+                if field == 0 {
+                    self.sky[i]
+                } else {
+                    self.glow[i]
+                }
+            }
+            None => {
+                if field == 0 {
+                    light::MAX
+                } else {
+                    0
+                }
+            }
         }
     }
 
@@ -899,7 +1116,10 @@ mod tests {
         let mut s = station();
         assert!(s.set(IVec3::new(20, 3, 0), block::STONE));
         assert_eq!(s.bounds.max, IVec3::new(20, 3, 4));
-        assert!(!s.set(IVec3::new(HALF_SPAN, 0, 0), block::STONE), "past the limit");
+        assert!(
+            !s.set(IVec3::new(HALF_SPAN, 0, 0), block::STONE),
+            "past the limit"
+        );
         assert!(!s.set(IVec3::new(0, MAX_Y + 1, 0), block::STONE));
         assert!(s.set(IVec3::new(-HALF_SPAN, MIN_Y, -HALF_SPAN), block::STONE));
         // Bounds never shrink: breaking a block keeps them.
@@ -928,7 +1148,9 @@ mod tests {
     #[test]
     fn raycast_finds_the_slab() {
         let s = station();
-        let hit = s.raycast(Vec3::new(0.5, 2.6, 2.5), Vec3::new(0.0, -1.0, -0.4), 5.0).unwrap();
+        let hit = s
+            .raycast(Vec3::new(0.5, 2.6, 2.5), Vec3::new(0.0, -1.0, -0.4), 5.0)
+            .unwrap();
         assert_eq!(hit.cell.y, 0);
         assert_eq!(hit.before.unwrap().y, 1);
     }
@@ -945,7 +1167,10 @@ mod tests {
         assert_eq!(l.at(IVec3::new(3, 1, 3)).0, light::MAX);
         assert!(l.at(IVec3::new(0, 1, 0)).0 < light::MAX);
         s.set(IVec3::new(0, 1, 0), block::TORCH);
-        assert_eq!(s.light().at(IVec3::new(0, 1, 0)).1, block::emission(block::TORCH));
+        assert_eq!(
+            s.light().at(IVec3::new(0, 1, 0)).1,
+            block::emission(block::TORCH)
+        );
     }
 
     #[test]
@@ -959,7 +1184,10 @@ mod tests {
             let p = o.offset(t).as_vec3();
             assert!((p.length() - center.length()).abs() < 1e-2);
             let up = o.rotation(t) * Vec3::Y;
-            assert!(up.dot(p.normalize()) > 0.9999, "floor toward the planet at t = {t}");
+            assert!(
+                up.dot(p.normalize()) > 0.9999,
+                "floor toward the planet at t = {t}"
+            );
         }
         // It goes the way it was heading, at circular speed.
         let v = o.angular_velocity().cross(center);
@@ -1001,9 +1229,19 @@ mod tests {
         s.name = "Mi Base".into();
         s.set(IVec3::new(5, 3, -7), block::TORCH);
         let at = Vec3::new(400.0, 30.0, -20.0);
-        s.orbit = Some(StationOrbit::through(42, at, Quat::from_rotation_arc(Vec3::Y, at.normalize()), Vec3::Z, Pull::planet(280.0), 123.5));
+        s.orbit = Some(StationOrbit::through(
+            42,
+            at,
+            Quat::from_rotation_arc(Vec3::Y, at.normalize()),
+            Vec3::Z,
+            Pull::planet(280.0),
+            123.5,
+        ));
         let back = Station::from_bytes(&s.to_bytes()).unwrap();
-        assert_eq!((back.id.as_str(), back.name.as_str()), (s.id.as_str(), "Mi Base"));
+        assert_eq!(
+            (back.id.as_str(), back.name.as_str()),
+            (s.id.as_str(), "Mi Base")
+        );
         assert_eq!(back.orbit, s.orbit);
         assert!(s.cells().all(|(p, b)| back.get(p) == b));
         s.orbit = None;
@@ -1018,7 +1256,10 @@ mod tests {
         let l = Lanes::new(Pull::planet(gr), spin, &[]);
         assert!(l.radii.len() > 10, "{} lanes", l.radii.len());
         assert!(l.radii[0] + (MIN_Y as f32) - GRAVITY_BELOW >= gr + CLEAR - 1e-3);
-        assert!(*l.radii.last().unwrap() + (MAX_Y + 1) as f32 + GRAVITY_ABOVE < Pull::planet(gr).soi - Pull::planet(gr).taper());
+        assert!(
+            *l.radii.last().unwrap() + (MAX_Y + 1) as f32 + GRAVITY_ABOVE
+                < Pull::planet(gr).soi - Pull::planet(gr).taper()
+        );
         for w in l.radii.windows(2) {
             assert!(w[1] - w[0] >= LANE - 1e-3);
         }
@@ -1026,7 +1267,11 @@ mod tests {
         // One turn a day: the rate of a body coasting there is the planet's.
         assert!((circular_speed(s, Pull::planet(gr)) / s - spin).abs() < 1e-5);
         // A planet with a long day has none inside its pull.
-        assert!(Lanes::new(Pull::planet(gr), std::f32::consts::TAU / 7200.0, &[]).sync.is_none());
+        assert!(
+            Lanes::new(Pull::planet(gr), std::f32::consts::TAU / 7200.0, &[])
+                .sync
+                .is_none()
+        );
     }
 
     #[test]
@@ -1038,13 +1283,20 @@ mod tests {
         assert!(!l.radii.is_empty());
         for &r in &l.radii {
             // A whole station, gravity and all, stays out of the moon's band.
-            let (lo, hi) = (r + MIN_Y as f32 - GRAVITY_BELOW, r + (MAX_Y + 1) as f32 + GRAVITY_ABOVE);
+            let (lo, hi) = (
+                r + MIN_Y as f32 - GRAVITY_BELOW,
+                r + (MAX_Y + 1) as f32 + GRAVITY_ABOVE,
+            );
             assert!(hi < moon.0 || lo > moon.1, "lane at {r}");
         }
         assert!(l.radii.iter().any(|&r| r < moon.0) && l.radii.iter().any(|&r| r > moon.1));
         // A moon over the synchronous orbit takes it away.
         let s = Lanes::new(Pull::planet(gr), spin, &[]).sync.unwrap();
-        assert!(Lanes::new(Pull::planet(gr), spin, &[(s - 100.0, s + 100.0)]).sync.is_none());
+        assert!(
+            Lanes::new(Pull::planet(gr), spin, &[(s - 100.0, s + 100.0)])
+                .sync
+                .is_none()
+        );
     }
 
     #[test]
@@ -1057,7 +1309,13 @@ mod tests {
         let open = lanes.clone().without(&[(150.0, top)]);
         assert!(open.is_sync(s) && open.sync == Some(s));
         let (below, _) = reach();
-        assert!(open.radii.iter().all(|&r| (r - s).abs() < 0.5 || r - below > top), "{:?}", open.radii);
+        assert!(
+            open.radii
+                .iter()
+                .all(|&r| (r - s).abs() < 0.5 || r - below > top),
+            "{:?}",
+            open.radii
+        );
         assert!(open.radii.len() > 1 && open.radii.len() < lanes.radii.len());
     }
 
@@ -1076,8 +1334,22 @@ mod tests {
             // All crowding the same spot, in every plane, at whatever time.
             let t = i as f64 * 37.0;
             let dir = (Vec3::X + rng.dir() * 0.05).normalize();
-            let want = StationOrbit::through(1, dir * (gr + 80.0), Quat::IDENTITY, rng.dir(), Pull::planet(gr), t);
-            let o = find_slot(&want, &lanes, &placed.iter().map(|o| o.rebased(t)).collect::<Vec<_>>(), rate_at(gr), None).unwrap();
+            let want = StationOrbit::through(
+                1,
+                dir * (gr + 80.0),
+                Quat::IDENTITY,
+                rng.dir(),
+                Pull::planet(gr),
+                t,
+            );
+            let o = find_slot(
+                &want,
+                &lanes,
+                &placed.iter().map(|o| o.rebased(t)).collect::<Vec<_>>(),
+                rate_at(gr),
+                None,
+            )
+            .unwrap();
             placed.push(o);
         }
         // Over a long while, no two come close: neither the same lane (sideways) nor two lanes.
@@ -1087,7 +1359,10 @@ mod tests {
                 for b in &placed[i + 1..] {
                     let (pa, pb) = (a.offset(t), b.offset(t));
                     let dr = (pa.length() - pb.length()).abs();
-                    assert!(dr >= (LANE - 1.0) as f64 || pa.distance(pb) >= LANE_GAP, "met at t = {t}");
+                    assert!(
+                        dr >= (LANE - 1.0) as f64 || pa.distance(pb) >= LANE_GAP,
+                        "met at t = {t}"
+                    );
                 }
             }
         }
@@ -1097,9 +1372,19 @@ mod tests {
     fn a_full_planet_says_so() {
         let gr = 280.0;
         let lanes = Lanes::new(Pull::planet(gr), 0.01, &[]);
-        let want = StationOrbit::through(1, Vec3::X * (gr + 80.0), Quat::IDENTITY, Vec3::Z, Pull::planet(gr), 0.0);
+        let want = StationOrbit::through(
+            1,
+            Vec3::X * (gr + 80.0),
+            Quat::IDENTITY,
+            Vec3::Z,
+            Pull::planet(gr),
+            0.0,
+        );
         let others = vec![want; MAX_PER_PLANET];
-        assert_eq!(find_slot(&want, &lanes, &others, rate_at(gr), None), Err(Refusal::TooMany));
+        assert_eq!(
+            find_slot(&want, &lanes, &others, rate_at(gr), None),
+            Err(Refusal::TooMany)
+        );
     }
 
     #[test]
@@ -1111,15 +1396,32 @@ mod tests {
         // Placed from an inclined orbit: it goes into the equator's plane.
         let at = Vec3::new(gr + 90.0, 40.0, 0.0);
         let floor_down = Quat::from_rotation_arc(Vec3::Y, at.normalize());
-        let want = StationOrbit::through(1, at, floor_down, Vec3::new(0.0, 0.5, 1.0), Pull::planet(gr), 10.0);
-        let o = find_slot(&want, &lanes, &[], rate_at(gr), Some((spin_axis.as_dvec3(), spin as f64))).unwrap();
+        let want = StationOrbit::through(
+            1,
+            at,
+            floor_down,
+            Vec3::new(0.0, 0.5, 1.0),
+            Pull::planet(gr),
+            10.0,
+        );
+        let o = find_slot(
+            &want,
+            &lanes,
+            &[],
+            rate_at(gr),
+            Some((spin_axis.as_dvec3(), spin as f64)),
+        )
+        .unwrap();
         assert!((o.radius() - lanes.sync.unwrap()).abs() < 1e-2);
         let ground = |t: f64| DQuat::from_axis_angle(spin_axis.as_dvec3(), spin as f64 * t);
         let over = |t: f64| ground(t).inverse() * o.offset(t);
         for t in [10.0, 300.0, 4000.0, 100_000.0] {
             assert!(over(t).distance(over(10.0)) < 0.5, "drifted at t = {t}");
             let up = o.rotation(t) * Vec3::Y;
-            assert!(up.dot(o.offset(t).as_vec3().normalize()) > 0.9999, "floor toward the planet");
+            assert!(
+                up.dot(o.offset(t).as_vec3().normalize()) > 0.9999,
+                "floor toward the planet"
+            );
         }
     }
 }

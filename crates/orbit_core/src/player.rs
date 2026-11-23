@@ -100,7 +100,10 @@ pub struct Pull {
 impl Pull {
     /// A planet's: its sphere of influence as far as `soi` says.
     pub fn planet(gravity_radius: f32) -> Self {
-        Self { gravity_radius, soi: soi(gravity_radius) }
+        Self {
+            gravity_radius,
+            soi: soi(gravity_radius),
+        }
     }
 
     /// The last stretch of the sphere of influence, where gravity fades out.
@@ -150,7 +153,11 @@ pub struct Located<'a> {
 impl<'a> Located<'a> {
     /// At the frame its spec holds.
     pub fn of(planet: &'a Planet) -> Self {
-        Self { planet, center: planet.spec.center, rotation: planet.spec.rotation }
+        Self {
+            planet,
+            center: planet.spec.center,
+            rotation: planet.spec.rotation,
+        }
     }
 }
 
@@ -215,7 +222,13 @@ impl Well {
 
 impl From<&Located<'_>> for Well {
     fn from(p: &Located) -> Self {
-        Self { id: p.planet.spec.id, center: p.center, radius: p.planet.spec.radius, pull: p.planet.spec.pull(), vel: p.planet.spec.velocity }
+        Self {
+            id: p.planet.spec.id,
+            center: p.center,
+            radius: p.planet.spec.radius,
+            pull: p.planet.spec.pull(),
+            vel: p.planet.spec.velocity,
+        }
     }
 }
 
@@ -337,7 +350,10 @@ impl Body {
 
     /// The planet whose frame the body is in (surface or orbit), or whose station it is on.
     pub fn planet(&self) -> Option<u64> {
-        self.gravity_source.or(self.orbiting).or(self.station_planet).or(self.cabin_planet)
+        self.gravity_source
+            .or(self.orbiting)
+            .or(self.station_planet)
+            .or(self.cabin_planet)
     }
 
     /// The body's velocity against its planet's orbit frame (or space), world-oriented: its own
@@ -369,7 +385,11 @@ impl Body {
             return;
         }
         let k = 1.0 - (-rate * dt).exp();
-        self.forward = self.forward.slerp(flat, k).reject_from(self.up).normalize_or(flat);
+        self.forward = self
+            .forward
+            .slerp(flat, k)
+            .reject_from(self.up)
+            .normalize_or(flat);
         let pitch = d.dot(self.up).clamp(-1.0, 1.0).asin();
         self.pitch += (pitch - self.pitch) * k;
     }
@@ -386,7 +406,9 @@ impl Body {
         }
         let rot = Quat::from_rotation_arc(self.up, up);
         self.up = up;
-        self.forward = (rot * self.forward).reject_from(up).normalize_or(up.any_orthonormal_vector());
+        self.forward = (rot * self.forward)
+            .reject_from(up)
+            .normalize_or(up.any_orthonormal_vector());
     }
 
     /// Puts the body somewhere in open space (world position and velocity): a teleport. The next
@@ -404,7 +426,9 @@ impl Body {
         self.pos = Vec3::ZERO;
         self.vel = vel;
         self.up = up.normalize();
-        self.forward = forward.reject_from(self.up).normalize_or(self.up.any_orthonormal_vector());
+        self.forward = forward
+            .reject_from(self.up)
+            .normalize_or(self.up.any_orthonormal_vector());
         self.pitch = pitch;
         self.on_ground = false;
         self.flying = false;
@@ -419,7 +443,9 @@ impl Body {
         b.drift = p.planet.spec.velocity;
         b.pos = feet;
         b.up = up.normalize();
-        b.forward = forward.reject_from(b.up).normalize_or(b.up.any_orthonormal_vector());
+        b.forward = forward
+            .reject_from(b.up)
+            .normalize_or(b.up.any_orthonormal_vector());
         b
     }
 
@@ -433,7 +459,9 @@ impl Body {
         b.pos = rel;
         b.vel = vel;
         b.up = up.normalize();
-        b.forward = forward.reject_from(b.up).normalize_or(b.up.any_orthonormal_vector());
+        b.forward = forward
+            .reject_from(b.up)
+            .normalize_or(b.up.any_orthonormal_vector());
         b
     }
 
@@ -469,24 +497,60 @@ impl Body {
         if self.cabin.is_some() {
             return; // `ride` moves the cabin's frame
         }
-        if let Some(st) = self.station.as_ref().and_then(|id| stations.iter().find(|s| &s.station.id == id)) {
+        if let Some(st) = self
+            .station
+            .as_ref()
+            .and_then(|id| stations.iter().find(|s| &s.station.id == id))
+        {
             self.frame = (st.center, st.rotation);
             self.spin = (st.spin, st.planet_center);
-        } else if let Some(p) = self.gravity_source.and_then(|id| planets.iter().find(|p| p.planet.spec.id == id)) {
+        } else if let Some(p) = self
+            .gravity_source
+            .and_then(|id| planets.iter().find(|p| p.planet.spec.id == id))
+        {
             self.frame = (p.center, p.rotation);
-        } else if let Some(w) = self.orbiting.and_then(|id| wells.iter().find(|w| w.id == id)) {
+        } else if let Some(w) = self
+            .orbiting
+            .and_then(|id| wells.iter().find(|w| w.id == id))
+        {
             self.frame = (w.center, Quat::IDENTITY);
         }
     }
 
     /// Re-expresses the body in another frame, keeping its motion: what the old frame carried it
     /// at becomes its own velocity, and what the new one carries it at is taken off.
-    fn enter_frame(&mut self, surface: Option<u64>, orbiting: Option<u64>, frame: (DVec3, Quat), drift: Vec3) {
-        self.enter_any(surface, orbiting, None, frame, (Vec3::ZERO, DVec3::ZERO), drift);
+    fn enter_frame(
+        &mut self,
+        surface: Option<u64>,
+        orbiting: Option<u64>,
+        frame: (DVec3, Quat),
+        drift: Vec3,
+    ) {
+        self.enter_any(
+            surface,
+            orbiting,
+            None,
+            frame,
+            (Vec3::ZERO, DVec3::ZERO),
+            drift,
+        );
     }
 
-    fn enter_any(&mut self, surface: Option<u64>, orbiting: Option<u64>, station: Option<&StationAt>, frame: (DVec3, Quat), spin: (Vec3, DVec3), drift: Vec3) {
-        let (pos, vel, up, fwd) = (self.world_point(self.pos), self.world_vel() + self.drift - drift, self.world_dir(self.up), self.world_dir(self.forward));
+    fn enter_any(
+        &mut self,
+        surface: Option<u64>,
+        orbiting: Option<u64>,
+        station: Option<&StationAt>,
+        frame: (DVec3, Quat),
+        spin: (Vec3, DVec3),
+        drift: Vec3,
+    ) {
+        let (pos, vel, up, fwd) = (
+            self.world_point(self.pos),
+            self.world_vel() + self.drift - drift,
+            self.world_dir(self.up),
+            self.world_dir(self.forward),
+        );
         let inv = frame.1.inverse();
         self.frame = frame;
         self.spin = spin;
@@ -495,7 +559,9 @@ impl Body {
         self.vel = inv * vel;
         self.vel -= inv * self.frame_motion(self.pos);
         self.up = (inv * up).normalize();
-        self.forward = (inv * fwd).reject_from(self.up).normalize_or(self.up.any_orthonormal_vector());
+        self.forward = (inv * fwd)
+            .reject_from(self.up)
+            .normalize_or(self.up.any_orthonormal_vector());
         self.gravity_source = surface;
         self.orbiting = orbiting;
         self.station = station.map(|s| s.station.id.clone());
@@ -508,7 +574,14 @@ impl Body {
     /// call takes it into the cabin's frame (the planet's turning frame), keeping how it looks.
     pub fn ride(&mut self, cabin: &CabinAt, dt: f32) {
         if self.cabin.as_deref() != Some(cabin.elevator.as_str()) {
-            self.enter_any(None, None, None, (cabin.center, cabin.rotation), (cabin.spin, cabin.center), cabin.drift);
+            self.enter_any(
+                None,
+                None,
+                None,
+                (cabin.center, cabin.rotation),
+                (cabin.spin, cabin.center),
+                cabin.drift,
+            );
             self.cabin = Some(cabin.elevator.clone());
             self.cabin_planet = Some(cabin.planet);
         }
@@ -524,7 +597,14 @@ impl Body {
 
     /// Steps out onto a planet's ground (its frame: `center`, `rotation`), feet at `feet`
     /// (planet-local), standing still on it.
-    pub fn stand_on(&mut self, planet: u64, center: DVec3, rotation: Quat, drift: Vec3, feet: Vec3) {
+    pub fn stand_on(
+        &mut self,
+        planet: u64,
+        center: DVec3,
+        rotation: Quat,
+        drift: Vec3,
+        feet: Vec3,
+    ) {
         self.enter_frame(Some(planet), None, (center, rotation), drift);
         self.pos = feet;
         self.vel = Vec3::ZERO;
@@ -539,17 +619,43 @@ impl Body {
 
     /// One step. `planets` are those with blocks loaded (for walking), `wells` every planet near
     /// enough to orbit, loaded or not, and `stations` those near enough to stand on.
-    pub fn step_with(&mut self, input: Input, planets: &[Located], wells: &[Well], stations: &[StationAt], dt: f32) {
+    pub fn step_with(
+        &mut self,
+        input: Input,
+        planets: &[Located],
+        wells: &[Well],
+        stations: &[StationAt],
+        dt: f32,
+    ) {
         self.sync_frame(planets, wells, stations);
         (self.swimming, self.eyes_in) = (None, None); // set again where there are blocks
         let world = self.world_point(self.pos);
         // A station's gravity first: stations orbit above atmospheres, inside spheres of influence.
-        let on = stations.iter().find(|s| self.station.as_ref() == Some(&s.station.id) && s.station.in_gravity(s.to_local(world)))
-            .or_else(|| stations.iter().find(|s| s.station.in_gravity(s.to_local(world))));
+        let on = stations
+            .iter()
+            .find(|s| {
+                self.station.as_ref() == Some(&s.station.id)
+                    && s.station.in_gravity(s.to_local(world))
+            })
+            .or_else(|| {
+                stations
+                    .iter()
+                    .find(|s| s.station.in_gravity(s.to_local(world)))
+            });
         if let Some(st) = on {
             if self.station.as_ref() != Some(&st.station.id) {
-                let drift = wells.iter().find(|w| w.id == st.planet).map_or(Vec3::ZERO, |w| w.vel);
-                self.enter_any(None, None, Some(st), (st.center, st.rotation), (st.spin, st.planet_center), drift);
+                let drift = wells
+                    .iter()
+                    .find(|w| w.id == st.planet)
+                    .map_or(Vec3::ZERO, |w| w.vel);
+                self.enter_any(
+                    None,
+                    None,
+                    Some(st),
+                    (st.center, st.rotation),
+                    (st.spin, st.planet_center),
+                    drift,
+                );
             }
             self.step_station(input, st.station, dt);
             return;
@@ -557,7 +663,10 @@ impl Body {
         let surface = planets
             .iter()
             .filter(|p| world.distance(p.center) < p.planet.spec.gravity_radius() as f64)
-            .min_by(|a, b| (world.distance(a.center) - a.planet.spec.radius as f64).total_cmp(&(world.distance(b.center) - b.planet.spec.radius as f64)));
+            .min_by(|a, b| {
+                (world.distance(a.center) - a.planet.spec.radius as f64)
+                    .total_cmp(&(world.distance(b.center) - b.planet.spec.radius as f64))
+            });
         if let Some(p) = surface {
             let id = Some(p.planet.spec.id);
             if id != self.gravity_source || self.station.is_some() {
@@ -567,10 +676,16 @@ impl Body {
             return;
         }
         // Inside a moon's sphere of influence, which is inside its planet's: the smallest wins.
-        let well = wells.iter().filter(|w| world.distance(w.center) < w.soi() as f64).min_by(|a, b| a.soi().total_cmp(&b.soi()));
+        let well = wells
+            .iter()
+            .filter(|w| world.distance(w.center) < w.soi() as f64)
+            .min_by(|a, b| a.soi().total_cmp(&b.soi()));
         match well {
             Some(w) => {
-                if self.orbiting != Some(w.id) || self.gravity_source.is_some() || self.station.is_some() {
+                if self.orbiting != Some(w.id)
+                    || self.gravity_source.is_some()
+                    || self.station.is_some()
+                {
                     self.enter_frame(None, Some(w.id), (w.center, Quat::IDENTITY), w.vel);
                 }
                 self.step_orbit(input, w, dt);
@@ -595,7 +710,9 @@ impl Body {
     /// Acceleration from the thrusters in vacuum (manual, autopilot and brake), in the body's frame.
     fn thrusters(&self, input: Input, dt: f32) -> Vec3 {
         let vertical = input.jump as i32 as f32 - input.descend as i32 as f32;
-        let wish = self.look_dir() * input.movement.y + self.right() * input.movement.x + self.up * vertical;
+        let wish = self.look_dir() * input.movement.y
+            + self.right() * input.movement.x
+            + self.up * vertical;
         let thrust = if input.sprint { THRUST * BOOST } else { THRUST };
         let mut a = wish.normalize_or_zero() * thrust + self.autopilot(input);
         if input.brake {
@@ -605,7 +722,9 @@ impl Body {
     }
 
     fn autopilot(&self, input: Input) -> Vec3 {
-        input.thrust.map_or(Vec3::ZERO, |t| self.frame.1.inverse() * t)
+        input
+            .thrust
+            .map_or(Vec3::ZERO, |t| self.frame.1.inverse() * t)
     }
 
     /// Deceleration that stops the body (in its frame) without overshooting.
@@ -635,7 +754,8 @@ impl Body {
     /// Walking, jumping, flying and the jetpack, standing on ground that is "down" against
     /// `radial`, with `gravity` pulling that way. Sets the velocity; collision is the caller's.
     fn locomotion(&mut self, input: Input, radial: Vec3, gravity: f32, dt: f32) {
-        let wish = (self.forward * input.movement.y + self.right() * input.movement.x).normalize_or_zero();
+        let wish =
+            (self.forward * input.movement.y + self.right() * input.movement.x).normalize_or_zero();
         let speed = if input.sprint { SPRINT } else { WALK };
         let vertical = input.jump as i32 as f32 - input.descend as i32 as f32;
         // The jetpack lifts off when Space is held, and walks while standing.
@@ -663,14 +783,17 @@ impl Body {
             }
             self.vel = vt + radial * vr;
         } else if self.flying && !piloted {
-            let target = (wish * (if input.sprint { FLY * 2.0 } else { FLY })) + radial * vertical * FLY;
+            let target =
+                (wish * (if input.sprint { FLY * 2.0 } else { FLY })) + radial * vertical * FLY;
             self.vel = self.vel.lerp(target, 1.0 - (-10.0 * dt).exp());
         } else if jet || piloted {
             self.flying = false;
             let mut a = self.autopilot(input) - radial * gravity;
             if jet {
                 let look = self.look_dir();
-                let dir = (look * input.movement.y + self.right() * input.movement.x + radial * vertical).normalize_or_zero();
+                let dir =
+                    (look * input.movement.y + self.right() * input.movement.x + radial * vertical)
+                        .normalize_or_zero();
                 // Holds you up against gravity, and thrusts where you point.
                 a += radial * gravity + dir * if input.sprint { JET * JET_BOOST } else { JET };
             }
@@ -717,9 +840,16 @@ impl Body {
         self.swimming = block::liquid(at(self.pos + Vec3::Y * 0.5));
         self.eyes_in = block::liquid(at(self.eye()));
         self.ledge = block::is_solid(at(self.pos + Vec3::Y * 0.6 + self.forward * 0.55));
-        self.climbing = block::is_ladder(at(self.pos + Vec3::Y * 0.2)) || block::is_ladder(at(self.pos + Vec3::Y * 1.0));
+        self.climbing = block::is_ladder(at(self.pos + Vec3::Y * 0.2))
+            || block::is_ladder(at(self.pos + Vec3::Y * 1.0));
         self.locomotion(input, Vec3::Y, station.gravity(), dt);
-        let (pos, grounded) = move_flat(station, self.pos, &mut self.vel, self.auto_step && !self.flying, dt);
+        let (pos, grounded) = move_flat(
+            station,
+            self.pos,
+            &mut self.vel,
+            self.auto_step && !self.flying,
+            dt,
+        );
         self.pos = pos;
         self.on_ground = grounded;
         if self.on_ground && self.flying && input.descend {
@@ -741,7 +871,8 @@ impl Body {
         self.swimming = block::liquid(planet.block_at(self.pos + radial * 0.5));
         self.eyes_in = block::liquid(planet.block_at(self.eye()));
         self.ledge = planet.solid_at(self.pos + radial * 0.6 + self.forward * 0.55);
-        self.climbing = block::is_ladder(planet.block_at(self.pos + radial * 0.2)) || block::is_ladder(planet.block_at(self.pos + radial * 1.0));
+        self.climbing = block::is_ladder(planet.block_at(self.pos + radial * 0.2))
+            || block::is_ladder(planet.block_at(self.pos + radial * 1.0));
         self.locomotion(input, radial, GRAVITY, dt);
         if !self.flying {
             // Quadratic drag, integrated implicitly so it is stable at any speed.
@@ -749,7 +880,13 @@ impl Body {
             self.vel /= 1.0 + k * self.vel.length() * dt;
         }
 
-        let (pos, grounded) = move_and_collide(planet, self.pos, &mut self.vel, self.auto_step && !self.flying, dt);
+        let (pos, grounded) = move_and_collide(
+            planet,
+            self.pos,
+            &mut self.vel,
+            self.auto_step && !self.flying,
+            dt,
+        );
         self.pos = pos;
         self.on_ground = grounded;
         if self.on_ground && self.flying && input.descend {
@@ -771,24 +908,35 @@ impl Placed {
         let g = &planet.grid;
         let face = g.face_of(p);
         let (a, b) = g.face_coords(face, p);
-        Self { face, x: [a, b, p.length()] }
+        Self {
+            face,
+            x: [a, b, p.length()],
+        }
     }
 
     fn point(&self, planet: &Planet) -> DVec3 {
-        planet.grid.face_point(self.face, self.x[0], self.x[1], self.x[2])
+        planet
+            .grid
+            .face_point(self.face, self.x[0], self.x[1], self.x[2])
     }
 
     /// Extent on each axis in cell units (i, j, k).
     fn extent(&self, planet: &Planet) -> [(f64, f64); 3] {
         let (w, k) = (HALF_WIDTH as f64, self.x[2] - planet.grid.core as f64);
-        [(self.x[0] - w, self.x[0] + w), (self.x[1] - w, self.x[1] + w), (k, k + HEIGHT as f64)]
+        [
+            (self.x[0] - w, self.x[0] + w),
+            (self.x[1] - w, self.x[1] + w),
+            (k, k + HEIGHT as f64),
+        ]
     }
 
     /// World-free direction of a grid axis here (unit, planet-local).
     fn axis_dir(&self, planet: &Planet, axis: usize) -> Vec3 {
         let mut ahead = *self;
         ahead.x[axis] += 1e-3;
-        (ahead.point(planet) - self.point(planet)).normalize().as_vec3()
+        (ahead.point(planet) - self.point(planet))
+            .normalize()
+            .as_vec3()
     }
 }
 
@@ -809,27 +957,47 @@ fn boxes_near(planet: &Planet, face: usize, span: [(i64, i64); 3]) -> Vec<GridBo
     for i in span[0].0..=span[0].1 {
         for j in span[1].0..=span[1].1 {
             for k in span[2].0 - 1..=span[2].1 {
-                let full = [i as f64, j as f64, k as f64, (i + 1) as f64, (j + 1) as f64, (k + 1) as f64];
+                let full = [
+                    i as f64,
+                    j as f64,
+                    k as f64,
+                    (i + 1) as f64,
+                    (j + 1) as f64,
+                    (k + 1) as f64,
+                ];
                 if k < 0 {
                     out.push(full);
                     continue;
                 }
-                let Some(c) = g.cell_on_face(face, i, j, k) else { continue };
+                let Some(c) = g.cell_on_face(face, i, j, k) else {
+                    continue;
+                };
                 let b = planet.get(c);
                 match block::shape(b) {
                     block::Shape::Cube => out.push(full),
                     block::Shape::Boxes => {
                         let (f, ci, cj, _) = g.coords(c);
                         let same = f == face && ci as i64 == i && cj as i64 == j;
-                        for x in crate::shape::collision(b, crate::shape::joined(planet, c)).iter() {
+                        for x in crate::shape::collision(b, crate::shape::joined(planet, c)).iter()
+                        {
                             let (w0, w1) = (k as f64 + x[2] as f64, k as f64 + x[5] as f64);
                             if same {
-                                out.push([i as f64 + x[0] as f64, j as f64 + x[1] as f64, w0, i as f64 + x[3] as f64, j as f64 + x[4] as f64, w1]);
+                                out.push([
+                                    i as f64 + x[0] as f64,
+                                    j as f64 + x[1] as f64,
+                                    w0,
+                                    i as f64 + x[3] as f64,
+                                    j as f64 + x[4] as f64,
+                                    w1,
+                                ]);
                             } else {
                                 // Over a cube edge: the box's corners in this face's coordinates.
                                 let (mut lo, mut hi) = ([f64::MAX; 2], [f64::MIN; 2]);
-                                for (u, v) in [(x[0], x[1]), (x[3], x[1]), (x[3], x[4]), (x[0], x[4])] {
-                                    let (a, b) = g.face_coords(face, g.point(c, u, v, 0.5).as_dvec3());
+                                for (u, v) in
+                                    [(x[0], x[1]), (x[3], x[1]), (x[3], x[4]), (x[0], x[4])]
+                                {
+                                    let (a, b) =
+                                        g.face_coords(face, g.point(c, u, v, 0.5).as_dvec3());
                                     lo = [lo[0].min(a), lo[1].min(b)];
                                     hi = [hi[0].max(a), hi[1].max(b)];
                                 }
@@ -852,7 +1020,9 @@ fn overlaps(b: &GridBox, e: &[(f64, f64); 3]) -> bool {
 
 fn box_hits(planet: &Planet, at: &Placed) -> bool {
     let e = at.extent(planet);
-    boxes_near(planet, at.face, e.map(reach)).iter().any(|b| overlaps(b, &e))
+    boxes_near(planet, at.face, e.map(reach))
+        .iter()
+        .any(|b| overlaps(b, &e))
 }
 
 /// How far an extent can move along `axis` up to `d` before it touches one of `boxes`, and
@@ -860,7 +1030,10 @@ fn box_hits(planet: &Planet, at: &Placed) -> bool {
 fn sweep_boxes(boxes: &[GridBox], e: [(f64, f64); 3], axis: usize, d: f64) -> (f64, bool) {
     let (mut best, mut hit) = (d, false);
     for b in boxes {
-        if !(0..3).filter(|&x| x != axis).all(|x| b[x] < e[x].1 - SKIN && b[x + 3] > e[x].0 + SKIN) {
+        if !(0..3)
+            .filter(|&x| x != axis)
+            .all(|x| b[x] < e[x].1 - SKIN && b[x + 3] > e[x].0 + SKIN)
+        {
             continue;
         }
         if d > 0.0 && b[axis] >= e[axis].1 - SKIN {
@@ -953,7 +1126,13 @@ fn depenetrate(planet: &Planet, p: &mut Vec3) {
 /// axes, each stopping flush against cells and dropping that part of the velocity. While standing
 /// (`can_step` and the fall blocked by ground this substep) a wall one block high is stepped onto.
 /// Returns the new position and whether the box stands on ground.
-fn move_and_collide(planet: &Planet, p: Vec3, vel: &mut Vec3, can_step: bool, dt: f32) -> (Vec3, bool) {
+fn move_and_collide(
+    planet: &Planet,
+    p: Vec3,
+    vel: &mut Vec3,
+    can_step: bool,
+    dt: f32,
+) -> (Vec3, bool) {
     let delta = (*vel * dt).as_dvec3();
     let steps = (delta.length() / SUBSTEP).ceil().max(1.0) as usize;
     let d = delta / steps as f64;
@@ -967,7 +1146,9 @@ fn move_and_collide(planet: &Planet, p: Vec3, vel: &mut Vec3, can_step: bool, dt
         let tangent = d - radial * dr;
         let mut along = [0.0; 2];
         if tangent.length_squared() > 1e-14 {
-            let (a, b) = planet.grid.face_coords(at.face, (cur + tangent).normalize() * at.x[2]);
+            let (a, b) = planet
+                .grid
+                .face_coords(at.face, (cur + tangent).normalize() * at.x[2]);
             along = [a - at.x[0], b - at.x[1]];
         }
 
@@ -1008,13 +1189,20 @@ fn move_and_collide(planet: &Planet, p: Vec3, vel: &mut Vec3, can_step: bool, dt
 /// The player's box with feet at `p` on a station: (min, max) corners.
 fn flat_box(p: DVec3) -> (DVec3, DVec3) {
     let w = HALF_WIDTH as f64;
-    (DVec3::new(p.x - w, p.y, p.z - w), DVec3::new(p.x + w, p.y + HEIGHT as f64, p.z + w))
+    (
+        DVec3::new(p.x - w, p.y, p.z - w),
+        DVec3::new(p.x + w, p.y + HEIGHT as f64, p.z + w),
+    )
 }
 
 /// The collision boxes of the blocks around a box (min, max corners), and of the layer under it
 /// (fences stand a block and a half high): [x0, y0, z0, x1, y1, z1].
 fn flat_boxes(s: &Station, lo: DVec3, hi: DVec3) -> Vec<GridBox> {
-    let (a, b, c) = (reach((lo.x, hi.x)), reach((lo.y, hi.y)), reach((lo.z, hi.z)));
+    let (a, b, c) = (
+        reach((lo.x, hi.x)),
+        reach((lo.y, hi.y)),
+        reach((lo.z, hi.z)),
+    );
     let mut out = Vec::new();
     for x in a.0..=a.1 {
         for y in b.0 - 1..=b.1 {
@@ -1027,7 +1215,14 @@ fn flat_boxes(s: &Station, lo: DVec3, hi: DVec3) -> Vec<GridBox> {
                     block::Shape::Boxes => {
                         for q in crate::shape::collision(blk, crate::shape::joined(s, p)).iter() {
                             let q = q.map(|v| v as f64);
-                            out.push([fx + q[0], fy + q[2], fz + q[1], fx + q[3], fy + q[5], fz + q[4]]);
+                            out.push([
+                                fx + q[0],
+                                fy + q[2],
+                                fz + q[1],
+                                fx + q[3],
+                                fy + q[5],
+                                fz + q[4],
+                            ]);
                         }
                     }
                     _ => {}
@@ -1169,7 +1364,10 @@ mod swim_tests {
         let sink = b.vel.dot(feet.normalize());
         assert!(sink < 0.0 && sink > -3.0, "sinks slowly: {sink}");
         let r0 = b.pos.length();
-        let up = Input { jump: true, ..Input::default() };
+        let up = Input {
+            jump: true,
+            ..Input::default()
+        };
         for _ in 0..30 {
             b.step(up, &planets, 1.0 / 60.0);
         }
@@ -1185,7 +1383,10 @@ mod tests {
     const DT: f32 = 1.0 / 60.0;
 
     fn spec(radius: f32) -> PlanetSpec {
-        PlanetSpec { center: DVec3::new(100.0, 0.0, 0.0), ..PlanetSpec::new(3, "t".into(), radius, Biome::Barren) }
+        PlanetSpec {
+            center: DVec3::new(100.0, 0.0, 0.0),
+            ..PlanetSpec::new(3, "t".into(), radius, Biome::Barren)
+        }
     }
 
     fn planet() -> Planet {
@@ -1200,7 +1401,10 @@ mod tests {
 
     /// Body standing at grid coordinates (a, b) on `face`, on top of layer `k - 1`, facing +a.
     fn stand(p: &Planet, face: usize, a: f64, b: f64, k: usize) -> Body {
-        let at = Placed { face, x: [a, b, p.grid.radius(k) as f64] };
+        let at = Placed {
+            face,
+            x: [a, b, p.grid.radius(k) as f64],
+        };
         let local = at.point(p).as_vec3();
         let mut body = Body::new(p.spec.to_world(local), p.spec.rotation * local);
         body.forward = p.spec.rotation * at.axis_dir(p, 0);
@@ -1215,7 +1419,11 @@ mod tests {
     fn run(p: &Planet, b: &mut Body, input: Input, ticks: usize) {
         for i in 0..ticks {
             b.step(input, &[Located::of(p)], DT);
-            assert!(!collides(p, b.pos), "inside a block at tick {i}: {:?}", placed(p, b));
+            assert!(
+                !collides(p, b.pos),
+                "inside a block at tick {i}: {:?}",
+                placed(p, b)
+            );
         }
     }
 
@@ -1224,7 +1432,14 @@ mod tests {
         p.set(c, b);
     }
 
-    const FORWARD: Input = Input { movement: Vec2::Y, jump: false, descend: false, sprint: false, brake: false, thrust: None };
+    const FORWARD: Input = Input {
+        movement: Vec2::Y,
+        jump: false,
+        descend: false,
+        sprint: false,
+        brake: false,
+        thrust: None,
+    };
 
     #[test]
     fn falls_and_lands_on_surface() {
@@ -1244,7 +1459,16 @@ mod tests {
         let p = planet();
         let mut b = Body::new(p.spec.to_world(Vec3::Y * p.spec.ceiling()), Vec3::Y);
         run(&p, &mut b, Input::default(), 120);
-        run(&p, &mut b, Input { movement: Vec2::Y, sprint: true, ..Default::default() }, 2880);
+        run(
+            &p,
+            &mut b,
+            Input {
+                movement: Vec2::Y,
+                sprint: true,
+                ..Default::default()
+            },
+            2880,
+        );
         assert!(b.pos.length() < p.spec.ceiling());
     }
 
@@ -1256,7 +1480,11 @@ mod tests {
         // Head off the grid axes so the loop crosses face edges at an angle.
         b.forward = Quat::from_axis_angle(b.up, 0.4) * b.forward;
         let (mut turned, mut last) = (0.0, None::<Vec3>);
-        let sprint = Input { movement: Vec2::Y, sprint: true, ..Default::default() };
+        let sprint = Input {
+            movement: Vec2::Y,
+            sprint: true,
+            ..Default::default()
+        };
         for _ in 0..10_000 {
             run(&p, &mut b, sprint, 1);
             let now = b.pos.normalize();
@@ -1265,7 +1493,11 @@ mod tests {
             if turned > std::f32::consts::TAU {
                 break;
             }
-            assert!(b.on_ground && (b.pos.length() - p.grid.radius(GROUND)).abs() < 1e-3, "r = {}", b.pos.length());
+            assert!(
+                b.on_ground && (b.pos.length() - p.grid.radius(GROUND)).abs() < 1e-3,
+                "r = {}",
+                b.pos.length()
+            );
         }
         assert!(turned > std::f32::consts::TAU, "only walked {turned} rad");
     }
@@ -1273,9 +1505,24 @@ mod tests {
     #[test]
     fn going_into_a_moons_pull_keeps_your_speed() {
         // A planet at the origin; a moon 1000 out going round at 45 blocks/s, its pull 400 wide.
-        let planet = Well { id: 1, center: DVec3::ZERO, radius: 150.0, pull: Pull::planet(280.0), vel: Vec3::ZERO };
+        let planet = Well {
+            id: 1,
+            center: DVec3::ZERO,
+            radius: 150.0,
+            pull: Pull::planet(280.0),
+            vel: Vec3::ZERO,
+        };
         let moon_vel = Vec3::new(0.0, 0.0, 45.0);
-        let moon = Well { id: 2, center: DVec3::new(1000.0, 0.0, 0.0), radius: 50.0, pull: Pull { gravity_radius: 150.0, soi: 400.0 }, vel: moon_vel };
+        let moon = Well {
+            id: 2,
+            center: DVec3::new(1000.0, 0.0, 0.0),
+            radius: 50.0,
+            pull: Pull {
+                gravity_radius: 150.0,
+                soi: 400.0,
+            },
+            vel: moon_vel,
+        };
         let mut b = Body::new(DVec3::new(590.0, 0.0, 0.0), Vec3::Y);
         b.vel = Vec3::new(30.0, 0.0, 0.0);
         let dt = 1.0 / 60.0;
@@ -1287,7 +1534,12 @@ mod tests {
             b.step_with(Input::default(), &[], &[planet, moon], &[], dt);
         }
         // Against the moon, it goes as fast as against the planet, less the moon's own motion.
-        assert!((b.world_vel() - (before - moon_vel)).length() < 1.0, "{} vs {}", b.world_vel(), before - moon_vel);
+        assert!(
+            (b.world_vel() - (before - moon_vel)).length() < 1.0,
+            "{} vs {}",
+            b.world_vel(),
+            before - moon_vel
+        );
         // And back out: as it was.
         b.vel = -b.vel;
         let mut inside = b.world_vel();
@@ -1301,8 +1553,17 @@ mod tests {
     #[test]
     fn idle_on_a_spinning_orbiting_planet_does_not_drift() {
         let mut p = flat();
-        p.spec.orbit = Orbit { star: DVec3::new(-3000.0, 200.0, 1000.0), radius: 2500.0, speed: 0.05, ..Default::default() };
-        p.spec.spin = Spin { axis: Vec3::new(0.3, 1.0, 0.0).normalize(), speed: 0.2, phase: 0.0 };
+        p.spec.orbit = Orbit {
+            star: DVec3::new(-3000.0, 200.0, 1000.0),
+            radius: 2500.0,
+            speed: 0.05,
+            ..Default::default()
+        };
+        p.spec.spin = Spin {
+            axis: Vec3::new(0.3, 1.0, 0.0).normalize(),
+            speed: 0.2,
+            phase: 0.0,
+        };
         p.spec.advance(0.0);
         let n = p.grid.n as f64;
         let mut b = stand(&p, 0, n * 0.37, n * 0.61, GROUND);
@@ -1327,8 +1588,17 @@ mod tests {
     fn standing_far_from_the_origin_is_perfectly_still() {
         // A star half a million blocks out, where world positions only resolve to centimeters.
         let mut p = flat();
-        p.spec.orbit = Orbit { star: DVec3::new(480_000.0, 30_000.0, -250_000.0), radius: 8000.0, speed: 4.0 / 8000.0, ..Default::default() };
-        p.spec.spin = Spin { axis: Vec3::new(0.3, 1.0, 0.0).normalize(), speed: 0.01, phase: 0.0 };
+        p.spec.orbit = Orbit {
+            star: DVec3::new(480_000.0, 30_000.0, -250_000.0),
+            radius: 8000.0,
+            speed: 4.0 / 8000.0,
+            ..Default::default()
+        };
+        p.spec.spin = Spin {
+            axis: Vec3::new(0.3, 1.0, 0.0).normalize(),
+            speed: 0.01,
+            phase: 0.0,
+        };
         p.spec.advance(0.0);
         let n = p.grid.n as f64;
         let mut b = stand(&p, 0, n * 0.37, n * 0.61, GROUND);
@@ -1338,7 +1608,11 @@ mod tests {
             b.step(Input::default(), &[Located::of(&p)], DT);
             if i > 60 {
                 assert!(b.on_ground, "left the ground at tick {i}");
-                assert!((b.pos.length() - ground).abs() < 1e-4, "bounced to r = {} at tick {i}", b.pos.length());
+                assert!(
+                    (b.pos.length() - ground).abs() < 1e-4,
+                    "bounced to r = {} at tick {i}",
+                    b.pos.length()
+                );
             }
         }
     }
@@ -1355,7 +1629,10 @@ mod tests {
             let now = b.world_point(b.pos);
             let step = (now - last).length();
             // World coordinates out here resolve to about 0.1 mm.
-            assert!((step - 0.5 * DT as f64).abs() < 3e-4, "moved {step} at tick {i}");
+            assert!(
+                (step - 0.5 * DT as f64).abs() < 3e-4,
+                "moved {step} at tick {i}"
+            );
             last = now;
         }
         assert!((last - start).length() - 0.5 * 600.0 < 0.05);
@@ -1365,7 +1642,12 @@ mod tests {
     fn falls_down_a_one_by_one_shaft() {
         let n = flat().grid.n;
         // Mid-face, off-centre in the column, by a face edge and in a cube corner.
-        for (face, i, j, off) in [(0, n / 2, n / 2, 0.0), (2, 7, 9, 0.15), (3, n - 1, 5, -0.12), (4, 0, 0, 0.1)] {
+        for (face, i, j, off) in [
+            (0, n / 2, n / 2, 0.0),
+            (2, 7, 9, 0.15),
+            (3, n - 1, 5, -0.12),
+            (4, 0, 0, 0.1),
+        ] {
             let mut p = flat();
             for k in GROUND - 15..GROUND {
                 set(&mut p, face, i, j, k, block::AIR);
@@ -1374,7 +1656,11 @@ mod tests {
             run(&p, &mut b, Input::default(), 240);
             let bottom = p.grid.radius(GROUND - 15);
             assert!(b.on_ground, "face {face} ({i}, {j})");
-            assert!((b.pos.length() - bottom).abs() < 1e-3, "face {face} ({i}, {j}): stuck at r = {}, bottom {bottom}", b.pos.length());
+            assert!(
+                (b.pos.length() - bottom).abs() < 1e-3,
+                "face {face} ({i}, {j}): stuck at r = {}, bottom {bottom}",
+                b.pos.length()
+            );
         }
     }
 
@@ -1388,7 +1674,11 @@ mod tests {
         let mut b = stand(&p, f, i as f64 - 1.5, j as f64 + 0.5, GROUND);
         run(&p, &mut b, FORWARD, 60);
         run(&p, &mut b, Input::default(), 180);
-        assert!((b.pos.length() - p.grid.radius(GROUND - 15)).abs() < 1e-3, "stuck at r = {}", b.pos.length());
+        assert!(
+            (b.pos.length() - p.grid.radius(GROUND - 15)).abs() < 1e-3,
+            "stuck at r = {}",
+            b.pos.length()
+        );
     }
 
     #[test]
@@ -1425,8 +1715,15 @@ mod tests {
         let mut b = stand(&p, 0, i as f64 + 0.5, j as f64 + 0.5, GROUND);
         run(&p, &mut b, FORWARD, 90);
         let rest = placed(&p, &b);
-        assert!((rest.x[0] - (i as f64 + 3.0 - 0.3)).abs() < 1e-3, "a = {}", rest.x[0]);
-        assert!((rest.x[2] - p.grid.radius(GROUND) as f64).abs() < 1e-3, "climbed a 2-high wall");
+        assert!(
+            (rest.x[0] - (i as f64 + 3.0 - 0.3)).abs() < 1e-3,
+            "a = {}",
+            rest.x[0]
+        );
+        assert!(
+            (rest.x[2] - p.grid.radius(GROUND) as f64).abs() < 1e-3,
+            "climbed a 2-high wall"
+        );
         let pos = b.pos;
         run(&p, &mut b, FORWARD, 60);
         assert!(b.pos.distance(pos) < 1e-4, "jitters against the wall");
@@ -1437,13 +1734,25 @@ mod tests {
     fn slides_along_a_wall_moving_diagonally() {
         let (p, i, j) = walled();
         let mut b = stand(&p, 0, i as f64 + 1.5, j as f64 + 0.5, GROUND);
-        let diagonal = Input { movement: Vec2::new(1.0, 1.0), ..Default::default() };
+        let diagonal = Input {
+            movement: Vec2::new(1.0, 1.0),
+            ..Default::default()
+        };
         run(&p, &mut b, diagonal, 20);
         let first = placed(&p, &b);
         run(&p, &mut b, diagonal, 60);
         let then = placed(&p, &b);
-        assert!((then.x[0] - (i as f64 + 2.7)).abs() < 1e-3, "a = {}", then.x[0]);
-        assert!((then.x[1] - first.x[1]).abs() > 2.0, "did not slide: b {} -> {}", first.x[1], then.x[1]);
+        assert!(
+            (then.x[0] - (i as f64 + 2.7)).abs() < 1e-3,
+            "a = {}",
+            then.x[0]
+        );
+        assert!(
+            (then.x[1] - first.x[1]).abs() > 2.0,
+            "did not slide: b {} -> {}",
+            first.x[1],
+            then.x[1]
+        );
     }
 
     #[test]
@@ -1458,14 +1767,22 @@ mod tests {
         let mut b = stand(&p, 0, i as f64 + 0.5, j as f64 + 0.5, GROUND);
         run(&p, &mut b, FORWARD, 90);
         let at = placed(&p, &b);
-        assert!((at.x[0] - (i as f64 + 2.7)).abs() < 1e-3, "climbed without auto-step: a = {}", at.x[0]);
+        assert!(
+            (at.x[0] - (i as f64 + 2.7)).abs() < 1e-3,
+            "climbed without auto-step: a = {}",
+            at.x[0]
+        );
 
         let mut b = stand(&p, 0, i as f64 + 0.5, j as f64 + 0.5, GROUND);
         b.auto_step = true;
         run(&p, &mut b, FORWARD, 90);
         let at = placed(&p, &b);
         assert!(at.x[0] > (i + 4) as f64, "a = {}", at.x[0]);
-        assert!((at.x[2] - p.grid.radius(GROUND + 1) as f64).abs() < 1e-3, "r = {}", at.x[2]);
+        assert!(
+            (at.x[2] - p.grid.radius(GROUND + 1) as f64).abs() < 1e-3,
+            "r = {}",
+            at.x[2]
+        );
     }
 
     #[test]
@@ -1486,17 +1803,37 @@ mod station_tests {
 
     fn setup(t: f64) -> (Station, StationOrbit) {
         let mut s = Station::new("0000abcd".into(), "Test", crate::block::SMOOTH_STONE);
-        let o = StationOrbit::through(7, Vec3::new(0.0, GR + 70.0, 0.0), Quat::IDENTITY, Vec3::X, Pull::planet(GR), t);
+        let o = StationOrbit::through(
+            7,
+            Vec3::new(0.0, GR + 70.0, 0.0),
+            Quat::IDENTITY,
+            Vec3::X,
+            Pull::planet(GR),
+            t,
+        );
         s.orbit = Some(o);
         (s, o)
     }
 
     fn at<'a>(s: &'a Station, o: &StationOrbit, t: f64) -> StationAt<'a> {
-        StationAt { station: s, center: o.offset(t), rotation: o.rotation(t), planet: 7, planet_center: DVec3::ZERO, spin: o.angular_velocity() }
+        StationAt {
+            station: s,
+            center: o.offset(t),
+            rotation: o.rotation(t),
+            planet: 7,
+            planet_center: DVec3::ZERO,
+            spin: o.angular_velocity(),
+        }
     }
 
     fn well() -> Well {
-        Well { id: 7, center: DVec3::ZERO, radius: GR - 40.0, pull: Pull::planet(GR), vel: Vec3::ZERO }
+        Well {
+            id: 7,
+            center: DVec3::ZERO,
+            radius: GR - 40.0,
+            pull: Pull::planet(GR),
+            vel: Vec3::ZERO,
+        }
     }
 
     #[test]
@@ -1513,8 +1850,16 @@ mod station_tests {
         }
         assert_eq!(b.station.as_deref(), Some("0000abcd"));
         assert!(b.on_ground, "lands on the slab");
-        assert!((b.pos.y - 1.0).abs() < 1e-3, "feet on top of the slab: {}", b.pos.y);
-        assert!(b.pos.distance(Vec3::new(2.5, 1.0, 2.5)) < 1e-3, "does not slide while the station turns: {:?}", b.pos);
+        assert!(
+            (b.pos.y - 1.0).abs() < 1e-3,
+            "feet on top of the slab: {}",
+            b.pos.y
+        );
+        assert!(
+            b.pos.distance(Vec3::new(2.5, 1.0, 2.5)) < 1e-3,
+            "does not slide while the station turns: {:?}",
+            b.pos
+        );
         assert_eq!(b.planet(), Some(7));
     }
 
@@ -1524,7 +1869,10 @@ mod station_tests {
         let mut b = Body::new(DVec3::ZERO, Vec3::Y);
         b.board(&at(&s, &o, 0.0), Vec3::new(0.5, 1.0, 0.5), Vec3::X);
         let mut t = 0.0;
-        let walk = Input { movement: Vec2::Y, ..Default::default() };
+        let walk = Input {
+            movement: Vec2::Y,
+            ..Default::default()
+        };
         let mut speed_before = 0.0;
         while b.station.is_some() && t < 10.0 {
             t += DT as f64;
@@ -1551,14 +1899,31 @@ mod station_tests {
         let spin = std::f32::consts::TAU / 450.0;
         let r = crate::station::sync_radius(GR, spin).unwrap();
         let mut s = Station::new("0000e1e7".into(), "Top", crate::block::SMOOTH_STONE);
-        let o = StationOrbit { planet: 7, start: DVec3::new(r as f64, 0.0, 0.0), turn: glam::DQuat::from_rotation_arc(glam::DVec3::Y, glam::DVec3::X), axis: glam::DVec3::Y, rate: spin as f64, t0: 0.0 };
+        let o = StationOrbit {
+            planet: 7,
+            start: DVec3::new(r as f64, 0.0, 0.0),
+            turn: glam::DQuat::from_rotation_arc(glam::DVec3::Y, glam::DVec3::X),
+            axis: glam::DVec3::Y,
+            rate: spin as f64,
+            t0: 0.0,
+        };
         s.orbit = Some(o);
         (s, o, spin)
     }
 
     fn cabin_at(h: f32, v: f32, spin: f32, t: f64) -> CabinAt {
         let rotation = Quat::from_rotation_y(spin * t as f32);
-        CabinAt { elevator: "0000e1e7".into(), planet: 7, center: DVec3::ZERO, rotation, spin: Vec3::Y * spin, drift: Vec3::ZERO, feet: Vec3::X * h, up: Vec3::X, vel: Vec3::X * v }
+        CabinAt {
+            elevator: "0000e1e7".into(),
+            planet: 7,
+            center: DVec3::ZERO,
+            rotation,
+            spin: Vec3::Y * spin,
+            drift: Vec3::ZERO,
+            feet: Vec3::X * h,
+            up: Vec3::X,
+            vel: Vec3::X * v,
+        }
     }
 
     #[test]
@@ -1571,8 +1936,14 @@ mod station_tests {
         assert_eq!(b.planet(), Some(7));
         // In the cabin at the top the body goes round with the planet: at the station's speed.
         let st = at(&s, &o, t);
-        let station_speed = st.spin.cross((b.world_point(b.pos) - st.planet_center).as_vec3());
-        assert!((b.world_vel() - station_speed).length() < 1e-3, "{} vs {station_speed}", b.world_vel());
+        let station_speed = st
+            .spin
+            .cross((b.world_point(b.pos) - st.planet_center).as_vec3());
+        assert!(
+            (b.world_vel() - station_speed).length() < 1e-3,
+            "{} vs {station_speed}",
+            b.world_vel()
+        );
         // That is the circular speed there: the station is in orbit, the rider weightless.
         let circular = crate::travel::circular_speed(r + 1.0, Pull::planet(GR));
         assert!((b.world_vel().length() - circular).abs() < 0.05 * circular);
@@ -1615,10 +1986,23 @@ mod station_tests {
         let mut t = 0.0;
         for _ in 0..120 {
             t += DT as f64;
-            b.step_with(Input { movement: Vec2::Y, ..Default::default() }, &[], &[well()], &[at(&s, &o, t)], DT);
+            b.step_with(
+                Input {
+                    movement: Vec2::Y,
+                    ..Default::default()
+                },
+                &[],
+                &[well()],
+                &[at(&s, &o, t)],
+                DT,
+            );
             assert!(!collides_flat(&s, b.pos));
         }
-        assert!((b.pos.x - (2.0 - HALF_WIDTH)).abs() < 1e-3, "flush against the wall: {}", b.pos.x);
+        assert!(
+            (b.pos.x - (2.0 - HALF_WIDTH)).abs() < 1e-3,
+            "flush against the wall: {}",
+            b.pos.x
+        );
     }
 
     /// Walks +x on the station's deck for `ticks` with `input`, from (0.5, 1, 0.5); where it ends.
@@ -1637,14 +2021,21 @@ mod station_tests {
 
     #[test]
     fn doors_stop_you_shut_and_let_you_through_open() {
-        use crate::block::{door, Dir};
+        use crate::block::{Dir, door};
         let (mut s, _) = setup(0.0);
-        let fwd = Input { movement: Vec2::Y, ..Default::default() };
+        let fwd = Input {
+            movement: Vec2::Y,
+            ..Default::default()
+        };
         // A door in the doorway at x = 2, its panel on the side toward the player (x-).
         s.set(glam::IVec3::new(2, 1, 0), door(Dir(0), false, false));
         s.set(glam::IVec3::new(2, 2, 0), door(Dir(0), false, true));
         let b = walk(&s, fwd, 120);
-        assert!((b.pos.x - (2.0 - HALF_WIDTH)).abs() < 1e-3, "stops at the shut door: {}", b.pos.x);
+        assert!(
+            (b.pos.x - (2.0 - HALF_WIDTH)).abs() < 1e-3,
+            "stops at the shut door: {}",
+            b.pos.x
+        );
         s.set(glam::IVec3::new(2, 1, 0), door(Dir(0), true, false));
         s.set(glam::IVec3::new(2, 2, 0), door(Dir(0), true, true));
         let b = walk(&s, fwd, 120);
@@ -1654,15 +2045,40 @@ mod station_tests {
     #[test]
     fn fences_are_too_high_to_jump_and_trapdoors_are_stepped_onto() {
         let (mut s, _) = setup(0.0);
-        let jump = Input { movement: Vec2::Y, jump: true, ..Default::default() };
+        let jump = Input {
+            movement: Vec2::Y,
+            jump: true,
+            ..Default::default()
+        };
         s.set(glam::IVec3::new(2, 1, 0), crate::block::FENCE);
-        let b = walk(&s, Input { movement: Vec2::Y, ..Default::default() }, 60);
+        let b = walk(
+            &s,
+            Input {
+                movement: Vec2::Y,
+                ..Default::default()
+            },
+            60,
+        );
         assert!(b.pos.x < 2.1, "walked through a fence: {:?}", b.pos);
         let b = walk(&s, jump, 180);
         assert!(b.pos.x < 2.1, "jumped a fence: {:?}", b.pos);
-        s.set(glam::IVec3::new(2, 1, 0), crate::block::trapdoor(crate::block::Dir(0), false, false));
-        let b = walk(&s, Input { movement: Vec2::Y, ..Default::default() }, 120);
-        assert!(b.pos.x > 2.5 && b.pos.y > 1.1, "on the trapdoor: {:?}", b.pos);
+        s.set(
+            glam::IVec3::new(2, 1, 0),
+            crate::block::trapdoor(crate::block::Dir(0), false, false),
+        );
+        let b = walk(
+            &s,
+            Input {
+                movement: Vec2::Y,
+                ..Default::default()
+            },
+            120,
+        );
+        assert!(
+            b.pos.x > 2.5 && b.pos.y > 1.1,
+            "on the trapdoor: {:?}",
+            b.pos
+        );
     }
 
     #[test]
@@ -1670,9 +2086,19 @@ mod station_tests {
         let (mut s, _) = setup(0.0);
         for y in 1..=6 {
             s.set(glam::IVec3::new(2, y, 0), crate::block::STONE);
-            s.set(glam::IVec3::new(1, y, 0), crate::block::ladder(crate::block::Dir(1)));
+            s.set(
+                glam::IVec3::new(1, y, 0),
+                crate::block::ladder(crate::block::Dir(1)),
+            );
         }
-        let b = walk(&s, Input { movement: Vec2::Y, ..Default::default() }, 240);
+        let b = walk(
+            &s,
+            Input {
+                movement: Vec2::Y,
+                ..Default::default()
+            },
+            240,
+        );
         assert!(b.pos.y > 5.0, "climbed to {:?}", b.pos);
     }
 }

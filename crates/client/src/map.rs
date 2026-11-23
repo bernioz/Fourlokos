@@ -15,21 +15,21 @@ use crate::lighting::VoxelMaterial;
 use crate::player::Player;
 use crate::station::Stations;
 use crate::textures::Atlas;
-use crate::travel::{fly_time, travel_blocker, warp_time, Mode, Request, Target, Travel};
-use crate::world::{gpu_mesh, Clock, Space};
+use crate::travel::{Mode, Request, Target, Travel, fly_time, travel_blocker, warp_time};
+use crate::world::{Clock, Space, gpu_mesh};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::math::DVec3;
-use bevy::picking::hover::Hovered;
 use bevy::picking::Pickable;
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
+use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, futures_lite::future};
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, Button};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use orbit_core::mesh::{far_mesh, MeshData};
+use orbit_core::mesh::{MeshData, far_mesh};
 use orbit_core::planet::PlanetSpec;
 use orbit_core::rng::mix;
 use orbit_core::universe::{StarSystem, Universe};
@@ -43,10 +43,27 @@ impl Plugin for MapPlugin {
             .init_gizmo_group::<MapGizmos>()
             .add_observer(on_activate)
             .add_systems(Startup, setup)
-            .add_systems(Update, reseed.run_if(resource_changed::<crate::sky::SkySeed>))
             .add_systems(
                 Update,
-                (toggle, run_actions, swap_cameras, controls, transition, finish_models, place_scene, place_markers, draw_lines, card, refresh_texts, style_buttons, finish_nebula)
+                reseed.run_if(resource_changed::<crate::sky::SkySeed>),
+            )
+            .add_systems(
+                Update,
+                (
+                    toggle,
+                    run_actions,
+                    swap_cameras,
+                    controls,
+                    transition,
+                    finish_models,
+                    place_scene,
+                    place_markers,
+                    draw_lines,
+                    card,
+                    refresh_texts,
+                    style_buttons,
+                    finish_nebula,
+                )
                     .chain()
                     .after(crate::player::move_player),
             );
@@ -131,7 +148,12 @@ struct Orbit {
 
 impl Orbit {
     fn eye(&self) -> Vec3 {
-        self.focus + Vec3::new(self.yaw.sin() * self.pitch.cos(), self.pitch.sin(), self.yaw.cos() * self.pitch.cos()) * self.dist
+        self.focus
+            + Vec3::new(
+                self.yaw.sin() * self.pitch.cos(),
+                self.pitch.sin(),
+                self.yaw.cos() * self.pitch.cos(),
+            ) * self.dist
     }
 
     fn approach(&mut self, to: &Orbit, k: f32) {
@@ -216,7 +238,11 @@ fn dust(seed: u64) -> Mesh {
     };
     while pos.len() < N * 4 {
         let (z, a) = (rnd() * 2.0 - 1.0, rnd() * TAU);
-        let d = Vec3::new((1.0 - z * z).sqrt() * a.cos(), z, (1.0 - z * z).sqrt() * a.sin());
+        let d = Vec3::new(
+            (1.0 - z * z).sqrt() * a.cos(),
+            z,
+            (1.0 - z * z).sqrt() * a.sin(),
+        );
         let band = (-(d.dot(band_axis) * 3.2).powi(2)).exp();
         if rnd() > 0.35 + 0.65 * band {
             continue;
@@ -224,9 +250,16 @@ fn dust(seed: u64) -> Mesh {
         let b = rnd().powf(5.0);
         let size = R * (0.00045 + 0.0009 * b);
         let warm = rnd() < 0.3;
-        let tint = if warm { Vec3::new(1.0, 0.78, 0.55) } else { Vec3::new(0.8, 0.88, 1.0) };
+        let tint = if warm {
+            Vec3::new(1.0, 0.78, 0.55)
+        } else {
+            Vec3::new(0.8, 0.88, 1.0)
+        };
         let c = tint * (0.3 + 3.0 * b);
-        let (u, w) = (d.any_orthonormal_vector() * size, d.cross(d.any_orthonormal_vector()) * size);
+        let (u, w) = (
+            d.any_orthonormal_vector() * size,
+            d.cross(d.any_orthonormal_vector()) * size,
+        );
         let base = pos.len() as u32;
         for q in [-u - w, u - w, u + w, -u + w] {
             pos.push((d * R + q).to_array());
@@ -234,10 +267,13 @@ fn dust(seed: u64) -> Mesh {
         }
         idx.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
-    Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
-        .with_inserted_indices(bevy::mesh::Indices::U32(idx))
+    Mesh::new(
+        bevy::mesh::PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
+    .with_inserted_indices(bevy::mesh::Indices::U32(idx))
 }
 
 #[derive(Resource)]
@@ -297,14 +333,33 @@ fn rgb(c: [f32; 3]) -> Color {
     Color::srgb(c[0], c[1], c[2])
 }
 
-fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>, mut gizmo: ResMut<GizmoConfigStore>, seed: Res<crate::sky::SkySeed>) {
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+    mut gizmo: ResMut<GizmoConfigStore>,
+    seed: Res<crate::sky::SkySeed>,
+) {
     commands.spawn((
         MapCamera,
         Camera3d::default(),
-        Camera { order: 1, is_active: false, clear_color: ClearColorConfig::Custom(Color::srgb(0.004, 0.006, 0.012)), ..default() },
-        Projection::Perspective(PerspectiveProjection { fov: 50f32.to_radians(), near: 0.0005, far: 30_000.0, ..default() }),
+        Camera {
+            order: 1,
+            is_active: false,
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.004, 0.006, 0.012)),
+            ..default()
+        },
+        Projection::Perspective(PerspectiveProjection {
+            fov: 50f32.to_radians(),
+            near: 0.0005,
+            far: 30_000.0,
+            ..default()
+        }),
         bevy::camera::Hdr,
-        bevy::post_process::bloom::Bloom { intensity: 0.3, ..bevy::post_process::bloom::Bloom::NATURAL },
+        bevy::post_process::bloom::Bloom {
+            intensity: 0.3,
+            ..bevy::post_process::bloom::Bloom::NATURAL
+        },
         Transform::default(),
         layer(),
     ));
@@ -313,18 +368,50 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: Res
     config.line.width = 1.5;
 
     let sphere = meshes.add(Sphere::new(1.0).mesh().uv(64, 32));
-    let nebula_mat = mats.add(StandardMaterial { base_color: Color::BLACK, unlit: true, cull_mode: None, ..default() });
-    commands.spawn((Backdrop, Mesh3d(sphere.clone()), MeshMaterial3d(nebula_mat.clone()), Transform::from_scale(Vec3::splat(20_000.0)), layer()));
+    let nebula_mat = mats.add(StandardMaterial {
+        base_color: Color::BLACK,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+    commands.spawn((
+        Backdrop,
+        Mesh3d(sphere.clone()),
+        MeshMaterial3d(nebula_mat.clone()),
+        Transform::from_scale(Vec3::splat(20_000.0)),
+        layer(),
+    ));
     let dust_mesh = meshes.add(dust(seed.0));
-    let dust_mat = mats.add(StandardMaterial { base_color: Color::WHITE, unlit: true, cull_mode: None, ..default() });
-    commands.spawn((Dust, Mesh3d(dust_mesh), MeshMaterial3d(dust_mat), Transform::default(), layer()));
+    let dust_mat = mats.add(StandardMaterial {
+        base_color: Color::WHITE,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+    commands.spawn((
+        Dust,
+        Mesh3d(dust_mesh),
+        MeshMaterial3d(dust_mat),
+        Transform::default(),
+        layer(),
+    ));
     let s = seed.0;
     let task = AsyncComputeTaskPool::get().spawn(async move { nebula(s) });
-    commands.insert_resource(MapAssets { sphere, nebula_task: Some(task), nebula_mat });
+    commands.insert_resource(MapAssets {
+        sphere,
+        nebula_task: Some(task),
+        nebula_mat,
+    });
 }
 
 /// Another world was started: its own dust and nebula (the first frame's are the ones `setup` made).
-fn reseed(seed: Res<crate::sky::SkySeed>, mut assets: ResMut<MapAssets>, dust: Query<&Mesh3d, With<Dust>>, mut meshes: ResMut<Assets<Mesh>>, mut first: Local<bool>) {
+fn reseed(
+    seed: Res<crate::sky::SkySeed>,
+    mut assets: ResMut<MapAssets>,
+    dust: Query<&Mesh3d, With<Dust>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut first: Local<bool>,
+) {
     if !std::mem::replace(&mut *first, true) {
         return;
     }
@@ -337,9 +424,17 @@ fn reseed(seed: Res<crate::sky::SkySeed>, mut assets: ResMut<MapAssets>, dust: Q
     assets.nebula_task = Some(AsyncComputeTaskPool::get().spawn(async move { nebula(s) }));
 }
 
-fn finish_nebula(mut assets: ResMut<MapAssets>, mut images: ResMut<Assets<Image>>, mut mats: ResMut<Assets<StandardMaterial>>) {
-    let Some(task) = assets.nebula_task.as_mut() else { return };
-    let Some(img) = block_on(future::poll_once(task)) else { return };
+fn finish_nebula(
+    mut assets: ResMut<MapAssets>,
+    mut images: ResMut<Assets<Image>>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(task) = assets.nebula_task.as_mut() else {
+        return;
+    };
+    let Some(img) = block_on(future::poll_once(task)) else {
+        return;
+    };
     assets.nebula_task = None;
     let h = images.add(img);
     if let Some(mut m) = mats.get_mut(&assets.nebula_mat) {
@@ -354,7 +449,9 @@ fn noise3(p: Vec3, seed: u64) -> f32 {
     let t = p - f;
     let t = t * t * (Vec3::splat(3.0) - 2.0 * t);
     let h = |x: f32, y: f32, z: f32| {
-        let k = mix(seed ^ mix((f.x + x) as i64 as u64 ^ mix((f.y + y) as i64 as u64 ^ mix((f.z + z) as i64 as u64))));
+        let k = mix(seed
+            ^ mix((f.x + x) as i64 as u64
+                ^ mix((f.y + y) as i64 as u64 ^ mix((f.z + z) as i64 as u64))));
         (k >> 40) as f32 / (1u64 << 24) as f32
     };
     let l = |a: f32, b: f32, t: f32| a + (b - a) * t;
@@ -382,7 +479,11 @@ fn nebula(seed: u64) -> Image {
     let (w, h) = (2048usize, 1024usize);
     let hue = |k: u64| {
         let a = (mix(seed ^ k) % 1000) as f32 / 1000.0 * TAU;
-        Vec3::new(0.5 + 0.5 * a.cos(), 0.5 + 0.5 * (a + 2.1).cos(), 0.5 + 0.5 * (a + 4.2).cos())
+        Vec3::new(
+            0.5 + 0.5 * a.cos(),
+            0.5 + 0.5 * (a + 2.1).cos(),
+            0.5 + 0.5 * (a + 4.2).cos(),
+        )
     };
     let (c1, c2) = (hue(1) * Vec3::new(0.5, 1.0, 0.6), hue(2));
     let band_axis = Vec3::new(0.2, 1.0, 0.1).normalize();
@@ -398,7 +499,10 @@ fn nebula(seed: u64) -> Image {
             let wisps = fbm(d * 5.0 + Vec3::splat(cloud * 2.0), seed ^ 9, 5);
             let a = ((cloud - 0.45) * 2.4).clamp(0.0, 1.0).powf(1.6) * (0.35 + 0.65 * band);
             let b = ((wisps - 0.5) * 3.0).clamp(0.0, 1.0).powf(2.0) * 0.6;
-            let col = Vec3::new(0.008, 0.01, 0.02) + c1 * a * 0.22 + c2 * b * 0.12 * (0.4 + band) + Vec3::new(0.9, 0.85, 0.8) * band * 0.05 * cloud;
+            let col = Vec3::new(0.008, 0.01, 0.02)
+                + c1 * a * 0.22
+                + c2 * b * 0.12 * (0.4 + band)
+                + Vec3::new(0.9, 0.85, 0.8) * band * 0.05 * cloud;
             let i = (y * w + x) * 4;
             for k in 0..3 {
                 data[i + k] = (col[k].clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8;
@@ -406,7 +510,17 @@ fn nebula(seed: u64) -> Image {
             data[i + 3] = 255;
         }
     }
-    Image::new(Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
+    Image::new(
+        Extent3d {
+            width: w as u32,
+            height: h as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    )
 }
 
 /// Systems around `here`, their planets where they are now (customizations included).
@@ -416,7 +530,9 @@ fn systems_around(space: &Space, here: DVec3, t: f64) -> Vec<StarSystem> {
     for x in -RANGE..=RANGE {
         for y in -RANGE_Y..=RANGE_Y {
             for z in -RANGE..=RANGE {
-                let Some(mut sys) = space.universe.system(c + IVec3::new(x, y, z)) else { continue };
+                let Some(mut sys) = space.universe.system(c + IVec3::new(x, y, z)) else {
+                    continue;
+                };
                 for p in &mut sys.planets {
                     if let Some(spec) = space.planet_spec(sys.sector, p.id, t) {
                         *p = spec;
@@ -448,12 +564,20 @@ pub(crate) fn toggle(
         let b = &player.body;
         let here = b.world_point(b.pos);
         let systems = systems_around(&space, here, clock.0);
-        let home_sector = b.planet().and_then(|id| space.planets.get(&id)).map(|p| Universe::sector_of(p.spec.star()));
+        let home_sector = b
+            .planet()
+            .and_then(|id| space.planets.get(&id))
+            .map(|p| Universe::sector_of(p.spec.star()));
         let home = home_sector.and_then(|s| systems.iter().position(|x| x.sector == s));
         let (root, markers, card, card_body, fade) = spawn_ui(&mut commands);
         // Open on your own system, coming out from where you are; else on the galaxy.
         let level = home.map_or(Level::Galaxy, Level::System);
-        let start = Orbit { focus: Vec3::ZERO, yaw: 0.6, pitch: 0.5, dist: 4.0 };
+        let start = Orbit {
+            focus: Vec3::ZERO,
+            yaw: 0.6,
+            pitch: 0.5,
+            dist: 4.0,
+        };
         let mut v = View {
             root,
             markers,
@@ -534,11 +658,26 @@ struct Layout {
 impl Layout {
     fn of(v: &View) -> Self {
         match v.level {
-            Level::Galaxy => Self { level: v.level, here: v.here, star: DVec3::ZERO, scale: 0.0 },
+            Level::Galaxy => Self {
+                level: v.level,
+                here: v.here,
+                star: DVec3::ZERO,
+                scale: 0.0,
+            },
             Level::System(i) => {
                 let sys = &v.systems[i];
-                let far = sys.planets.iter().filter(|p| !p.is_moon()).map(|p| p.orbit.radius).fold(1.0, f32::max);
-                Self { level: v.level, here: v.here, star: sys.center, scale: SYSTEM_SIZE / far }
+                let far = sys
+                    .planets
+                    .iter()
+                    .filter(|p| !p.is_moon())
+                    .map(|p| p.orbit.radius)
+                    .fold(1.0, f32::max);
+                Self {
+                    level: v.level,
+                    here: v.here,
+                    star: sys.center,
+                    scale: SYSTEM_SIZE / far,
+                }
             }
         }
     }
@@ -586,30 +725,91 @@ fn build_level(
         Level::Galaxy => {
             for (i, sys) in v.systems.iter().enumerate() {
                 let glow = LinearRgba::from(rgb(sys.star_color)) * 18.0;
-                let m = mats.add(StandardMaterial { base_color: Color::LinearRgba(glow), unlit: true, ..default() });
+                let m = mats.add(StandardMaterial {
+                    base_color: Color::LinearRgba(glow),
+                    unlit: true,
+                    ..default()
+                });
                 let size = 0.35 + (sys.star_radius - 800.0) / 4800.0;
-                v.scene.push(commands.spawn((Thing::Star(i), Mesh3d(assets.sphere.clone()), MeshMaterial3d(m), Transform::from_scale(Vec3::splat(size)), layer())).id());
+                v.scene.push(
+                    commands
+                        .spawn((
+                            Thing::Star(i),
+                            Mesh3d(assets.sphere.clone()),
+                            MeshMaterial3d(m),
+                            Transform::from_scale(Vec3::splat(size)),
+                            layer(),
+                        ))
+                        .id(),
+                );
                 let n = stations_in(stations, sys);
-                let note = if n > 0 { format!("  [{n} station{}]", if n == 1 { "" } else { "s" }) } else { String::new() };
-                markers.push((Mark::Thing(Thing::Star(i)), MapAction::System(i), format!("{}{note}", sys.name), rgb(sys.star_color), 18.0));
+                let note = if n > 0 {
+                    format!("  [{n} station{}]", if n == 1 { "" } else { "s" })
+                } else {
+                    String::new()
+                };
+                markers.push((
+                    Mark::Thing(Thing::Star(i)),
+                    MapAction::System(i),
+                    format!("{}{note}", sys.name),
+                    rgb(sys.star_color),
+                    18.0,
+                ));
             }
         }
         Level::System(i) => {
             let sys = &v.systems[i];
             let lay = Layout::of(v);
             let glow = LinearRgba::from(rgb(sys.star_color)) * 14.0;
-            let m = mats.add(StandardMaterial { base_color: Color::LinearRgba(glow), unlit: true, ..default() });
+            let m = mats.add(StandardMaterial {
+                base_color: Color::LinearRgba(glow),
+                unlit: true,
+                ..default()
+            });
             let size = (sys.star_radius * lay.scale).max(0.4);
-            v.scene.push(commands.spawn((Thing::Star(i), Mesh3d(assets.sphere.clone()), MeshMaterial3d(m), Transform::from_scale(Vec3::splat(size)), layer())).id());
-            markers.push((Mark::Thing(Thing::Star(i)), MapAction::System(i), sys.name.clone(), rgb(sys.star_color), 22.0));
+            v.scene.push(
+                commands
+                    .spawn((
+                        Thing::Star(i),
+                        Mesh3d(assets.sphere.clone()),
+                        MeshMaterial3d(m),
+                        Transform::from_scale(Vec3::splat(size)),
+                        layer(),
+                    ))
+                    .id(),
+            );
+            markers.push((
+                Mark::Thing(Thing::Star(i)),
+                MapAction::System(i),
+                sys.name.clone(),
+                rgb(sys.star_color),
+                22.0,
+            ));
             let pool = AsyncComputeTaskPool::get();
             for p in &sys.planets {
                 let spec = planet_now(space, p, t);
                 let mat = voxel_mats.add(VoxelMaterial::new(sys.star_color, atlas.0.clone()));
                 let s = spec.clone();
                 let job = pool.spawn(async move { far_mesh(&s, 40) });
-                v.scene.push(commands.spawn((Thing::Planet(p.id), ModelJob(job), MeshMaterial3d(mat), Transform::default(), Visibility::default(), layer())).id());
-                markers.push((Mark::Thing(Thing::Planet(p.id)), MapAction::Planet(p.id), p.name.clone(), rgb(p.biome.color()), 20.0));
+                v.scene.push(
+                    commands
+                        .spawn((
+                            Thing::Planet(p.id),
+                            ModelJob(job),
+                            MeshMaterial3d(mat),
+                            Transform::default(),
+                            Visibility::default(),
+                            layer(),
+                        ))
+                        .id(),
+                );
+                markers.push((
+                    Mark::Thing(Thing::Planet(p.id)),
+                    MapAction::Planet(p.id),
+                    p.name.clone(),
+                    rgb(p.biome.color()),
+                    20.0,
+                ));
             }
             for (k, slot) in stations.list.iter().enumerate() {
                 let s = slot.station.read().unwrap();
@@ -618,7 +818,13 @@ fn build_level(
                     continue;
                 }
                 let mat = voxel_mats.add(VoxelMaterial::new(sys.star_color, atlas.0.clone()));
-                let mut e = commands.spawn((Thing::Station(k), MeshMaterial3d(mat), Transform::default(), Visibility::default(), layer()));
+                let mut e = commands.spawn((
+                    Thing::Station(k),
+                    MeshMaterial3d(mat),
+                    Transform::default(),
+                    Visibility::default(),
+                    layer(),
+                ));
                 match stations.drawn(k) {
                     Some(mesh) => {
                         e.insert(MeshFrom(mesh));
@@ -626,11 +832,19 @@ fn build_level(
                     None => {
                         // Not drawn in the world (its planet is far): meshed here.
                         let st = slot.station.clone();
-                        e.insert(ModelJob(pool.spawn(async move { orbit_core::mesh::station_mesh(&st.read().unwrap()) })));
+                        e.insert(ModelJob(pool.spawn(async move {
+                            orbit_core::mesh::station_mesh(&st.read().unwrap())
+                        })));
                     }
                 }
                 v.scene.push(e.id());
-                markers.push((Mark::Thing(Thing::Station(k)), MapAction::Station(k), s.name.clone(), STATION, 14.0));
+                markers.push((
+                    Mark::Thing(Thing::Station(k)),
+                    MapAction::Station(k),
+                    s.name.clone(),
+                    STATION,
+                    14.0,
+                ));
             }
         }
     }
@@ -647,14 +861,36 @@ fn build_level(
 struct MeshFrom(Entity);
 
 fn stations_in(stations: &Stations, sys: &StarSystem) -> usize {
-    stations.list.iter().filter(|s| s.station.read().unwrap().orbit.is_some_and(|o| sys.planets.iter().any(|p| p.id == o.planet))).count()
+    stations
+        .list
+        .iter()
+        .filter(|s| {
+            s.station
+                .read()
+                .unwrap()
+                .orbit
+                .is_some_and(|o| sys.planets.iter().any(|p| p.id == o.planet))
+        })
+        .count()
 }
 
-fn spawn_marker(parent: &mut ChildSpawnerCommands, of: Mark, action: Option<MapAction>, label: &str, color: Color, size: f32) {
+fn spawn_marker(
+    parent: &mut ChildSpawnerCommands,
+    of: Mark,
+    action: Option<MapAction>,
+    label: &str,
+    color: Color,
+    size: f32,
+) {
     let you = of == Mark::You;
     let mut e = parent.spawn((
         Marker { of, scale: 1.0 },
-        Node { position_type: PositionType::Absolute, width: px(size), height: px(size), ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            width: px(size),
+            height: px(size),
+            ..default()
+        },
         UiTransform::default(),
         Visibility::Hidden,
     ));
@@ -677,26 +913,57 @@ fn spawn_marker(parent: &mut ChildSpawnerCommands, of: Mark, action: Option<MapA
                 width: percent(100),
                 height: percent(100),
                 border: UiRect::all(px(if you { 2.0 } else { 1.5 })),
-                border_radius: if you { BorderRadius::ZERO } else { BorderRadius::all(percent(50)) },
+                border_radius: if you {
+                    BorderRadius::ZERO
+                } else {
+                    BorderRadius::all(percent(50))
+                },
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
             },
-            UiTransform { rotation: if you { Rot2::degrees(45.0) } else { Rot2::IDENTITY }, ..default() },
-            BorderColor::all(if you { color } else { Color::srgba(1.0, 1.0, 1.0, 0.8) }),
+            UiTransform {
+                rotation: if you {
+                    Rot2::degrees(45.0)
+                } else {
+                    Rot2::IDENTITY
+                },
+                ..default()
+            },
+            BorderColor::all(if you {
+                color
+            } else {
+                Color::srgba(1.0, 1.0, 1.0, 0.8)
+            }),
             Pickable::IGNORE,
             children![(
-                Node { width: px(size * 0.28), height: px(size * 0.28), border_radius: BorderRadius::all(percent(50)), ..default() },
+                Node {
+                    width: px(size * 0.28),
+                    height: px(size * 0.28),
+                    border_radius: BorderRadius::all(percent(50)),
+                    ..default()
+                },
                 BackgroundColor(color),
                 Pickable::IGNORE,
             )],
         ));
         m.spawn((
             Text::new(label),
-            TextFont { font_size: FontSize::Px(if you { 13.0 } else { 14.0 }), ..default() },
+            TextFont {
+                font_size: FontSize::Px(if you { 13.0 } else { 14.0 }),
+                ..default()
+            },
             TextColor(if you { ACCENT } else { TEXT }),
-            TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::BLACK.with_alpha(0.9) },
-            Node { position_type: PositionType::Absolute, left: px(size + 4.0), bottom: px(size * 0.55), ..default() },
+            TextShadow {
+                offset: Vec2::new(1.0, 1.0),
+                color: Color::BLACK.with_alpha(0.9),
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(size + 4.0),
+                bottom: px(size * 0.55),
+                ..default()
+            },
             TextLayout::no_wrap(),
             Pickable::IGNORE,
         ));
@@ -704,17 +971,69 @@ fn spawn_marker(parent: &mut ChildSpawnerCommands, of: Mark, action: Option<MapA
 }
 
 fn spawn_ui(commands: &mut Commands) -> (Entity, Entity, Entity, Entity, Entity) {
-    let (mut markers, mut card, mut body, mut fade) = (Entity::PLACEHOLDER, Entity::PLACEHOLDER, Entity::PLACEHOLDER, Entity::PLACEHOLDER);
+    let (mut markers, mut card, mut body, mut fade) = (
+        Entity::PLACEHOLDER,
+        Entity::PLACEHOLDER,
+        Entity::PLACEHOLDER,
+        Entity::PLACEHOLDER,
+    );
     let root = commands
-        .spawn((Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), ..default() }, GlobalZIndex(20), Pickable::IGNORE))
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                height: percent(100),
+                ..default()
+            },
+            GlobalZIndex(20),
+            Pickable::IGNORE,
+        ))
         .with_children(|r| {
-            markers = r.spawn((Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), ..default() }, Pickable::IGNORE)).id();
+            markers = r
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: percent(100),
+                        height: percent(100),
+                        ..default()
+                    },
+                    Pickable::IGNORE,
+                ))
+                .id();
             // Top: where you are on the map, and how to move it.
-            r.spawn((Node { position_type: PositionType::Absolute, left: px(18), top: px(14), flex_direction: FlexDirection::Column, row_gap: px(2), ..default() }, Pickable::IGNORE))
-                .with_children(|t| {
-                    t.spawn((Text::default(), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(TEXT), MapText::Title, Pickable::IGNORE));
-                    t.spawn((Text::default(), TextFont { font_size: FontSize::Px(13.0), ..default() }, TextColor(MUTED), MapText::Hint, Pickable::IGNORE));
-                });
+            r.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(18),
+                    top: px(14),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(2),
+                    ..default()
+                },
+                Pickable::IGNORE,
+            ))
+            .with_children(|t| {
+                t.spawn((
+                    Text::default(),
+                    TextFont {
+                        font_size: FontSize::Px(22.0),
+                        ..default()
+                    },
+                    TextColor(TEXT),
+                    MapText::Title,
+                    Pickable::IGNORE,
+                ));
+                t.spawn((
+                    Text::default(),
+                    TextFont {
+                        font_size: FontSize::Px(13.0),
+                        ..default()
+                    },
+                    TextColor(MUTED),
+                    MapText::Hint,
+                    Pickable::IGNORE,
+                ));
+            });
             // The card of what is hovered or picked.
             card = r
                 .spawn((
@@ -733,7 +1052,13 @@ fn spawn_ui(commands: &mut Commands) -> (Entity, Entity, Entity, Entity, Entity)
                     Visibility::Hidden,
                 ))
                 .with_children(|c| {
-                    body = c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(4), ..default() }).id();
+                    body = c
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            row_gap: px(4),
+                            ..default()
+                        })
+                        .id();
                 })
                 .id();
             // Bottom bar: where you are, and what you can do.
@@ -752,19 +1077,56 @@ fn spawn_ui(commands: &mut Commands) -> (Entity, Entity, Entity, Entity, Entity)
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
             ))
             .with_children(|b| {
-                b.spawn((Text::default(), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(ACCENT), MapText::Status, Node { flex_grow: 1.0, ..default() }));
-                for (label, a) in [("Center on me", MapAction::Center), ("Galaxy", MapAction::Back), ("Launch (K)", MapAction::Launch), ("Land (L)", MapAction::Land), ("Stop autopilot", MapAction::Cancel), ("Leave (M)", MapAction::Close)] {
+                b.spawn((
+                    Text::default(),
+                    TextFont {
+                        font_size: FontSize::Px(14.0),
+                        ..default()
+                    },
+                    TextColor(ACCENT),
+                    MapText::Status,
+                    Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                ));
+                for (label, a) in [
+                    ("Center on me", MapAction::Center),
+                    ("Galaxy", MapAction::Back),
+                    ("Launch (K)", MapAction::Launch),
+                    ("Land (L)", MapAction::Land),
+                    ("Stop autopilot", MapAction::Cancel),
+                    ("Leave (M)", MapAction::Close),
+                ] {
                     b.spawn(button(label, a));
                 }
             });
-            fade = r.spawn((Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), ..default() }, BackgroundColor(Color::NONE), Pickable::IGNORE)).id();
+            fade = r
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: percent(100),
+                        height: percent(100),
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    Pickable::IGNORE,
+                ))
+                .id();
         })
         .id();
     (root, markers, card, body, fade)
 }
 
 fn colored(s: &str, size: f32, color: Color) -> (Text, TextFont, TextColor) {
-    (Text::new(s), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color))
+    (
+        Text::new(s),
+        TextFont {
+            font_size: FontSize::Px(size),
+            ..default()
+        },
+        TextColor(color),
+    )
 }
 
 fn button(label: &str, action: MapAction) -> impl Bundle {
@@ -772,20 +1134,38 @@ fn button(label: &str, action: MapAction) -> impl Bundle {
         Button,
         Hovered::default(),
         action,
-        Node { min_height: px(26), padding: UiRect::horizontal(px(10)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border_radius: BorderRadius::all(px(4)), ..default() },
+        Node {
+            min_height: px(26),
+            padding: UiRect::horizontal(px(10)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border_radius: BorderRadius::all(px(4)),
+            ..default()
+        },
         BackgroundColor(BUTTON),
         children![colored(label, 14.0, TEXT)],
     )
 }
 
-fn run_actions(mut commands: Commands, mut map: ResMut<GalaxyMap>, mut travel: ResMut<Travel>, space: Res<Space>, player: Single<&Player>, mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>) {
+fn run_actions(
+    mut commands: Commands,
+    mut map: ResMut<GalaxyMap>,
+    mut travel: ResMut<Travel>,
+    space: Res<Space>,
+    player: Single<&Player>,
+    mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
+) {
     for action in std::mem::take(&mut map.queue) {
         let Some(v) = map.open.as_mut() else { return };
         let mut leave = false;
         match action {
             MapAction::System(i) => {
                 if v.system == Some(i) && v.level == Level::Galaxy {
-                    v.transition = Some(Transition { to: Level::System(i), t: 0.0, swapped: false });
+                    v.transition = Some(Transition {
+                        to: Level::System(i),
+                        t: 0.0,
+                        swapped: false,
+                    });
                 } else if v.level == Level::Galaxy {
                     v.system = Some(i);
                     v.planet = None;
@@ -796,7 +1176,13 @@ fn run_actions(mut commands: Commands, mut map: ResMut<GalaxyMap>, mut travel: R
                     v.station = None;
                 }
             }
-            MapAction::Enter(i) => v.transition = Some(Transition { to: Level::System(i), t: 0.0, swapped: false }),
+            MapAction::Enter(i) => {
+                v.transition = Some(Transition {
+                    to: Level::System(i),
+                    t: 0.0,
+                    swapped: false,
+                })
+            }
             MapAction::Planet(id) => {
                 v.planet = Some(id);
                 v.station = None;
@@ -809,12 +1195,17 @@ fn run_actions(mut commands: Commands, mut map: ResMut<GalaxyMap>, mut travel: R
                 v.target.dist = v.target.dist.min(0.25);
             }
             MapAction::Go(mode) => {
-                let target = v.system.zip(v.planet).map(|(i, p)| Target { sector: v.systems[i].sector, planet: p });
+                let target = v.system.zip(v.planet).map(|(i, p)| Target {
+                    sector: v.systems[i].sector,
+                    planet: p,
+                });
                 if let Some(t) = target {
                     travel.requests.push(Request::Go(t, mode));
-                    leave = travel_blocker(&player.body, &space).is_none() && player.body.planet() != Some(t.planet);
+                    leave = travel_blocker(&player.body, &space).is_none()
+                        && player.body.planet() != Some(t.planet);
                     if !leave {
-                        travel.message = travel_blocker(&player.body, &space).unwrap_or_else(|| "You are already orbiting it.".into());
+                        travel.message = travel_blocker(&player.body, &space)
+                            .unwrap_or_else(|| "You are already orbiting it.".into());
                     }
                 }
             }
@@ -829,7 +1220,11 @@ fn run_actions(mut commands: Commands, mut map: ResMut<GalaxyMap>, mut travel: R
             MapAction::Cancel => travel.requests.push(Request::Cancel),
             MapAction::Back => {
                 if matches!(v.level, Level::System(_)) {
-                    v.transition = Some(Transition { to: Level::Galaxy, t: 0.0, swapped: false });
+                    v.transition = Some(Transition {
+                        to: Level::Galaxy,
+                        t: 0.0,
+                        swapped: false,
+                    });
                 }
             }
             MapAction::Center => v.follow = Follow::You,
@@ -872,7 +1267,10 @@ fn controls(
             v.target.dist = (v.target.dist * 1.18f32.powf(-scroll.delta.y.signum())).clamp(lo, hi);
         }
         let axis = |pos, neg| keys.pressed(pos) as i32 as f32 - keys.pressed(neg) as i32 as f32;
-        let pan = Vec2::new(axis(KeyCode::KeyD, KeyCode::KeyA), axis(KeyCode::KeyW, KeyCode::KeyS));
+        let pan = Vec2::new(
+            axis(KeyCode::KeyD, KeyCode::KeyA),
+            axis(KeyCode::KeyW, KeyCode::KeyS),
+        );
         if pan != Vec2::ZERO {
             v.follow = Follow::Free;
             let fwd = -Vec3::new(v.cam.yaw.sin(), 0.0, v.cam.yaw.cos());
@@ -915,7 +1313,17 @@ fn transition(
     let Some(v) = map.open.as_mut() else { return };
     // First frame: the level it opened on.
     if v.scene.is_empty() && v.transition.is_none() {
-        build_level(&mut commands, v, &assets, &mut mats, &mut voxel_mats, &atlas, &stations, &space, clock.0);
+        build_level(
+            &mut commands,
+            v,
+            &assets,
+            &mut mats,
+            &mut voxel_mats,
+            &atlas,
+            &stations,
+            &space,
+            clock.0,
+        );
         return;
     }
     let dt = time.delta_secs().min(0.1);
@@ -944,20 +1352,38 @@ fn transition(
                 v.station = None;
                 tr.swapped = true;
                 tr.t = 0.0;
-                build_level(&mut commands, v, &assets, &mut mats, &mut voxel_mats, &atlas, &stations, &space, clock.0);
+                build_level(
+                    &mut commands,
+                    v,
+                    &assets,
+                    &mut mats,
+                    &mut voxel_mats,
+                    &atlas,
+                    &stations,
+                    &space,
+                    clock.0,
+                );
                 // The new level starts close in and eases out.
                 match (from, to) {
                     (_, Level::System(_)) => {
                         v.cam.focus = Vec3::ZERO;
                         v.cam.dist = 4.0;
-                        v.target = Orbit { focus: Vec3::ZERO, dist: 110.0, ..v.cam };
+                        v.target = Orbit {
+                            focus: Vec3::ZERO,
+                            dist: 110.0,
+                            ..v.cam
+                        };
                         v.follow = Follow::Star;
                     }
                     (Level::System(i), Level::Galaxy) => {
                         let at = Layout::of(v).galaxy(v.systems[i].center);
                         v.cam.focus = at;
                         v.cam.dist = 1.5;
-                        v.target = Orbit { focus: at, dist: 45.0, ..v.cam };
+                        v.target = Orbit {
+                            focus: at,
+                            dist: 45.0,
+                            ..v.cam
+                        };
                         v.follow = Follow::Free;
                     }
                     _ => {}
@@ -980,11 +1406,20 @@ fn transition(
     }
 }
 
-fn finish_models(mut commands: Commands, mut jobs: Query<(Entity, &mut ModelJob)>, mut meshes: ResMut<Assets<Mesh>>, from: Query<(Entity, &MeshFrom)>, world_meshes: Query<&Mesh3d, Without<MeshFrom>>) {
+fn finish_models(
+    mut commands: Commands,
+    mut jobs: Query<(Entity, &mut ModelJob)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    from: Query<(Entity, &MeshFrom)>,
+    world_meshes: Query<&Mesh3d, Without<MeshFrom>>,
+) {
     for (e, mut job) in &mut jobs {
         if let Some(data) = block_on(future::poll_once(&mut job.0)) {
             let (mesh, aabb) = gpu_mesh(&mut meshes, data);
-            commands.entity(e).remove::<ModelJob>().insert((Mesh3d(mesh), aabb));
+            commands
+                .entity(e)
+                .remove::<ModelJob>()
+                .insert((Mesh3d(mesh), aabb));
         }
     }
     // Station models share the world's mesh of the station (it follows what is built).
@@ -1003,7 +1438,11 @@ fn place_scene(
     stations: Res<Stations>,
     clock: Res<Clock>,
     player: Single<&Player>,
-    mut things: Query<(&Thing, &mut Transform, Option<&MeshMaterial3d<VoxelMaterial>>)>,
+    mut things: Query<(
+        &Thing,
+        &mut Transform,
+        Option<&MeshMaterial3d<VoxelMaterial>>,
+    )>,
     mut voxel_mats: ResMut<Assets<VoxelMaterial>>,
 ) {
     let Some(v) = map.open.as_mut() else { return };
@@ -1026,10 +1465,16 @@ fn place_scene(
                 }
             }
             (Thing::Planet(id), Level::System(i)) => {
-                let Some(p) = v.systems[i].planets.iter().find(|p| p.id == id) else { continue };
+                let Some(p) = v.systems[i].planets.iter().find(|p| p.id == id) else {
+                    continue;
+                };
                 let spec = planet_now(&space, p, t);
                 let at = lay.system(spec.center);
-                *tr = Transform { translation: at, rotation: spec.rotation, scale: Vec3::splat(lay.scale) };
+                *tr = Transform {
+                    translation: at,
+                    rotation: spec.rotation,
+                    scale: Vec3::splat(lay.scale),
+                };
                 if let Some(mut m) = mat.and_then(|m| voxel_mats.get_mut(&m.0)) {
                     m.place(at, Vec3::ZERO);
                 }
@@ -1038,17 +1483,25 @@ fn place_scene(
                 }
             }
             (Thing::Station(k), Level::System(i)) => {
-                let Some(slot) = stations.list.get(k) else { continue };
+                let Some(slot) = stations.list.get(k) else {
+                    continue;
+                };
                 let s = slot.station.read().unwrap();
                 let Some(o) = s.orbit else {
                     tr.scale = Vec3::ZERO;
                     continue;
                 };
-                let Some(p) = v.systems[i].planets.iter().find(|p| p.id == o.planet) else { continue };
+                let Some(p) = v.systems[i].planets.iter().find(|p| p.id == o.planet) else {
+                    continue;
+                };
                 let spec = planet_now(&space, p, t);
                 let off = o.offset(t).as_vec3();
                 let at = lay.system(spec.center) + off * lay.scale;
-                *tr = Transform { translation: at, rotation: o.rotation(t), scale: Vec3::splat(lay.scale * STATION_SCALE) };
+                *tr = Transform {
+                    translation: at,
+                    rotation: o.rotation(t),
+                    scale: Vec3::splat(lay.scale * STATION_SCALE),
+                };
                 if let Some(mut m) = mat.and_then(|m| voxel_mats.get_mut(&m.0)) {
                     m.place_flat(at, (-at).normalize_or(Vec3::Y), 1.0);
                 }
@@ -1068,20 +1521,35 @@ fn place_scene(
 }
 
 /// You on the map, at the current level.
-fn you_on_map(v: &View, lay: &Layout, space: &Space, stations: &Stations, body: &orbit_core::player::Body, t: f64) -> Option<Vec3> {
+fn you_on_map(
+    v: &View,
+    lay: &Layout,
+    space: &Space,
+    stations: &Stations,
+    body: &orbit_core::player::Body,
+    t: f64,
+) -> Option<Vec3> {
     let world = body.world_point(body.pos);
     match lay.level {
         Level::Galaxy => Some(lay.galaxy(world)),
         Level::System(i) => {
             let sys = &v.systems[i];
             // On a station: where its model is.
-            if let Some(o) = body.station.as_ref().and_then(|id| stations.by_id(id)).and_then(|s| s.station.read().unwrap().orbit) {
+            if let Some(o) = body
+                .station
+                .as_ref()
+                .and_then(|id| stations.by_id(id))
+                .and_then(|s| s.station.read().unwrap().orbit)
+            {
                 let p = sys.planets.iter().find(|p| p.id == o.planet)?;
                 let spec = planet_now(space, p, t);
                 let off = o.offset(t).as_vec3();
                 return Some(lay.system(spec.center) + off * lay.scale);
             }
-            match body.planet().and_then(|id| sys.planets.iter().find(|p| p.id == id)) {
+            match body
+                .planet()
+                .and_then(|id| sys.planets.iter().find(|p| p.id == id))
+            {
                 Some(p) => {
                     let spec = planet_now(space, p, t);
                     let rel = (world - spec.center).as_vec3();
@@ -1105,7 +1573,14 @@ fn place_markers(
     clock: Res<Clock>,
     player: Single<&Player>,
     time: Res<Time>,
-    mut markers: Query<(&mut Marker, &mut Node, &mut UiTransform, &mut Visibility, Option<&Hovered>, Option<&MapAction>)>,
+    mut markers: Query<(
+        &mut Marker,
+        &mut Node,
+        &mut UiTransform,
+        &mut Visibility,
+        Option<&Hovered>,
+        Option<&MapAction>,
+    )>,
 ) {
     let Some(v) = map.open.as_ref() else { return };
     let (camera, ct) = *cam;
@@ -1117,9 +1592,17 @@ fn place_markers(
     for (mut m, mut node, mut ut, mut vis, hovered, action) in &mut markers {
         let at = match m.of {
             Mark::You => you,
-            Mark::Thing(th) => things.iter().find(|(x, _)| **x == th).map(|(_, t)| t.translation),
+            Mark::Thing(th) => things
+                .iter()
+                .find(|(x, _)| **x == th)
+                .map(|(_, t)| t.translation),
         };
-        let screen = at.and_then(|p| camera.world_to_viewport(&gt, p).ok().map(|s| (s, p.distance(ct.translation))));
+        let screen = at.and_then(|p| {
+            camera
+                .world_to_viewport(&gt, p)
+                .ok()
+                .map(|s| (s, p.distance(ct.translation)))
+        });
         let Some((s, d)) = screen else {
             *vis = Visibility::Hidden;
             continue;
@@ -1132,7 +1615,13 @@ fn place_markers(
             _ => false,
         };
         let hover = hovered.is_some_and(Hovered::get);
-        let want = if hover { 1.45 } else if picked { 1.25 } else { 1.0 } * if m.of == Mark::You { pulse } else { 1.0 };
+        let want = if hover {
+            1.45
+        } else if picked {
+            1.25
+        } else {
+            1.0
+        } * if m.of == Mark::You { pulse } else { 1.0 };
         m.scale += (want - m.scale) * k;
         // Far stars' markers shrink a little.
         let far = match lay.level {
@@ -1153,14 +1642,26 @@ fn place_markers(
 }
 
 /// Lanes between neighboring stars; orbits of planets and stations.
-fn draw_lines(map: Res<GalaxyMap>, stations: Res<Stations>, elevators: Res<crate::elevator::Elevators>, space: Res<Space>, clock: Res<Clock>, mut gizmos: Gizmos<MapGizmos>) {
+fn draw_lines(
+    map: Res<GalaxyMap>,
+    stations: Res<Stations>,
+    elevators: Res<crate::elevator::Elevators>,
+    space: Res<Space>,
+    clock: Res<Clock>,
+    mut gizmos: Gizmos<MapGizmos>,
+) {
     let Some(v) = map.open.as_ref() else { return };
     let lay = Layout::of(v);
     match lay.level {
         Level::Galaxy => {
             let pts: Vec<Vec3> = v.systems.iter().map(|s| lay.galaxy(s.center)).collect();
             for (i, a) in pts.iter().enumerate() {
-                let mut near: Vec<(f32, usize)> = pts.iter().enumerate().filter(|(j, _)| *j != i).map(|(j, b)| (a.distance(*b), j)).collect();
+                let mut near: Vec<(f32, usize)> = pts
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(j, b)| (a.distance(*b), j))
+                    .collect();
                 near.sort_by(|x, y| x.0.total_cmp(&y.0));
                 for &(d, j) in near.iter().take(3) {
                     if j > i || near.len() < 2 {
@@ -1171,7 +1672,13 @@ fn draw_lines(map: Res<GalaxyMap>, stations: Res<Stations>, elevators: Res<crate
             }
             if let Some(i) = v.system {
                 let c = pts[i];
-                gizmos.circle(Isometry3d::new(c, Quat::from_rotation_x(FRAC_PI_2)), 2.2, ACCENT.with_alpha(0.7)).resolution(48);
+                gizmos
+                    .circle(
+                        Isometry3d::new(c, Quat::from_rotation_x(FRAC_PI_2)),
+                        2.2,
+                        ACCENT.with_alpha(0.7),
+                    )
+                    .resolution(48);
             }
         }
         Level::System(i) => {
@@ -1181,35 +1688,63 @@ fn draw_lines(map: Res<GalaxyMap>, stations: Res<Stations>, elevators: Res<crate
                 let rot = p.orbit.tilt * Quat::from_rotation_x(FRAC_PI_2);
                 let sel = v.planet == Some(p.id);
                 // Round the star, or a moon's round its planet.
-                let around = match p.host.and_then(|h| sys.planets.iter().find(|q| q.id == h.id)) {
+                let around = match p
+                    .host
+                    .and_then(|h| sys.planets.iter().find(|q| q.id == h.id))
+                {
                     Some(host) => lay.system(planet_now(&space, host, t).center),
                     None => Vec3::ZERO,
                 };
                 gizmos
-                    .circle(Isometry3d::new(around, rot), p.orbit.radius * lay.scale, Color::srgba(0.55, 0.8, 1.0, if sel { 0.55 } else { 0.18 }))
+                    .circle(
+                        Isometry3d::new(around, rot),
+                        p.orbit.radius * lay.scale,
+                        Color::srgba(0.55, 0.8, 1.0, if sel { 0.55 } else { 0.18 }),
+                    )
                     .resolution(160);
                 // How far its pull reaches (where orbits around it can be), facing the camera.
                 let spec = planet_now(&space, p, t);
                 let at = lay.system(spec.center);
-                let face = Quat::from_rotation_arc(Vec3::Z, (v.cam.eye() - at).normalize_or(Vec3::Z));
-                gizmos.circle(Isometry3d::new(at, face), spec.pull().soi * lay.scale, Color::srgba(0.55, 0.8, 1.0, if sel { 0.3 } else { 0.1 })).resolution(64);
+                let face =
+                    Quat::from_rotation_arc(Vec3::Z, (v.cam.eye() - at).normalize_or(Vec3::Z));
+                gizmos
+                    .circle(
+                        Isometry3d::new(at, face),
+                        spec.pull().soi * lay.scale,
+                        Color::srgba(0.55, 0.8, 1.0, if sel { 0.3 } else { 0.1 }),
+                    )
+                    .resolution(64);
             }
             for s in &stations.list {
                 let s = s.station.read().unwrap();
                 let Some(o) = s.orbit else { continue };
-                let Some(p) = sys.planets.iter().find(|p| p.id == o.planet) else { continue };
+                let Some(p) = sys.planets.iter().find(|p| p.id == o.planet) else {
+                    continue;
+                };
                 let spec = planet_now(&space, p, t);
                 let r = o.radius() * lay.scale;
                 let rot = Quat::from_rotation_arc(Vec3::Z, o.axis.as_vec3().normalize_or(Vec3::Y));
-                gizmos.circle(Isometry3d::new(lay.system(spec.center), rot), r, STATION.with_alpha(0.35)).resolution(64);
+                gizmos
+                    .circle(
+                        Isometry3d::new(lay.system(spec.center), rot),
+                        r,
+                        STATION.with_alpha(0.35),
+                    )
+                    .resolution(64);
             }
             // Space elevators: their ribbons, from the ground up to the counterweight.
             for e in &elevators.list {
                 let Some(n) = e.now else { continue };
-                let Some(p) = sys.planets.iter().find(|p| p.id == n.planet) else { continue };
+                let Some(p) = sys.planets.iter().find(|p| p.id == n.planet) else {
+                    continue;
+                };
                 let c = lay.system(planet_now(&space, p, t).center);
                 let d = n.rotation * n.dir;
-                gizmos.line(c + d * n.bottom as f32 * lay.scale, c + d * n.counterweight * lay.scale, STATION.with_alpha(0.8));
+                gizmos.line(
+                    c + d * n.bottom as f32 * lay.scale,
+                    c + d * n.counterweight * lay.scale,
+                    STATION.with_alpha(0.8),
+                );
             }
         }
     }
@@ -1230,7 +1765,10 @@ fn card(
     time: Res<Time>,
 ) {
     let Some(v) = map.open.as_mut() else { return };
-    let hovered = markers.iter().find(|(h, _, _)| h.get()).map(|(_, a, n)| (*a, n.left, n.top));
+    let hovered = markers
+        .iter()
+        .find(|(h, _, _)| h.get())
+        .map(|(_, a, n)| (*a, n.left, n.top));
     let picked = if let Some(k) = v.station {
         Some(MapAction::Station(k))
     } else if let Some(p) = v.planet.filter(|_| matches!(v.level, Level::System(_))) {
@@ -1238,7 +1776,12 @@ fn card(
     } else {
         v.system.map(MapAction::System)
     };
-    let picked_at = picked.and_then(|a| markers.iter().find(|(_, x, _)| **x == a).map(|(_, _, n)| (n.left, n.top)));
+    let picked_at = picked.and_then(|a| {
+        markers
+            .iter()
+            .find(|(_, x, _)| **x == a)
+            .map(|(_, _, n)| (n.left, n.top))
+    });
     let (what, at) = match hovered {
         Some((a, l, t)) => (Some(a), Some((l, t))),
         None => (picked, picked_at),
@@ -1254,7 +1797,9 @@ fn card(
         }
     }
     v.card_shown = (v.card_shown + time.delta_secs() * 6.0).min(1.0);
-    let Ok((mut node, mut ut, mut vis)) = cards.get_mut(v.card) else { return };
+    let Ok((mut node, mut ut, mut vis)) = cards.get_mut(v.card) else {
+        return;
+    };
     let (Some(_), Some((Val::Px(x), Val::Px(y)))) = (what, at.map(|(l, t)| (l, t))) else {
         *vis = Visibility::Hidden;
         return;
@@ -1264,7 +1809,11 @@ fn card(
     let ease = 1.0 - (1.0 - e) * (1.0 - e);
     // To the right of the marker, unless that runs off the screen.
     let (w, h) = (window.width(), window.height());
-    let left = if x + 40.0 + 330.0 < w { x + 40.0 } else { (x - 340.0).max(8.0) };
+    let left = if x + 40.0 + 330.0 < w {
+        x + 40.0
+    } else {
+        (x - 340.0).max(8.0)
+    };
     let top = (y - 30.0).clamp(60.0, (h - 300.0).max(60.0));
     node.left = px(left);
     node.top = px(top);
@@ -1279,73 +1828,170 @@ enum CardLine {
     Buttons(Vec<(String, MapAction, bool)>),
 }
 
-fn card_lines(v: &View, a: MapAction, space: &Space, stations: &Stations, body: &orbit_core::player::Body, t: f64) -> Vec<CardLine> {
+fn card_lines(
+    v: &View,
+    a: MapAction,
+    space: &Space,
+    stations: &Stations,
+    body: &orbit_core::player::Body,
+    t: f64,
+) -> Vec<CardLine> {
     let here = body.world_point(body.pos);
     let mut out = Vec::new();
     match a {
         MapAction::System(i) | MapAction::Enter(i) => {
             let sys = &v.systems[i];
             let mine = v.home == Some(i);
-            out.push(CardLine::Title(format!("{}{}", sys.name, if mine { " (you are here)" } else { "" }), rgb(sys.star_color)));
+            out.push(CardLine::Title(
+                format!("{}{}", sys.name, if mine { " (you are here)" } else { "" }),
+                rgb(sys.star_color),
+            ));
             let planets: Vec<_> = sys.planets.iter().filter(|p| !p.is_moon()).collect();
             let moons = sys.planets.len() - planets.len();
-            out.push(CardLine::Sub(format!("{:.1} km  //  {} planets, {moons} moons  //  star r {:.0}", sys.center.distance(here) / 1000.0, planets.len(), sys.star_radius)));
+            out.push(CardLine::Sub(format!(
+                "{:.1} km  //  {} planets, {moons} moons  //  star r {:.0}",
+                sys.center.distance(here) / 1000.0,
+                planets.len(),
+                sys.star_radius
+            )));
             for p in planets.iter().take(7) {
-                let m = sys.planets.iter().filter(|q| q.host.is_some_and(|h| h.id == p.id)).count();
-                let note = if m > 0 { format!(", {m} moon{}", if m == 1 { "" } else { "s" }) } else { String::new() };
-                out.push(CardLine::Row(p.name.clone(), format!("{:?}, r {}{note}", p.biome, p.radius as i32)));
+                let m = sys
+                    .planets
+                    .iter()
+                    .filter(|q| q.host.is_some_and(|h| h.id == p.id))
+                    .count();
+                let note = if m > 0 {
+                    format!(", {m} moon{}", if m == 1 { "" } else { "s" })
+                } else {
+                    String::new()
+                };
+                out.push(CardLine::Row(
+                    p.name.clone(),
+                    format!("{:?}, r {}{note}", p.biome, p.radius as i32),
+                ));
             }
             let n = stations_in(stations, sys);
             if n > 0 {
                 out.push(CardLine::Row("Stations".into(), n.to_string()));
             }
             if v.level == Level::Galaxy {
-                out.push(CardLine::Buttons(vec![("Enter system".into(), MapAction::Enter(i), false)]));
+                out.push(CardLine::Buttons(vec![(
+                    "Enter system".into(),
+                    MapAction::Enter(i),
+                    false,
+                )]));
             }
         }
         MapAction::Planet(id) => {
-            let Some((sys, p)) = v.systems.iter().find_map(|s| s.planets.iter().find(|p| p.id == id).map(|p| (s, p))) else { return out };
+            let Some((sys, p)) = v
+                .systems
+                .iter()
+                .find_map(|s| s.planets.iter().find(|p| p.id == id).map(|p| (s, p)))
+            else {
+                return out;
+            };
             let spec = planet_now(space, p, t);
             let orbiting = body.planet() == Some(id);
             out.push(CardLine::Title(spec.name.clone(), rgb(spec.biome.color())));
-            out.push(CardLine::Sub(format!("{:.1} km  //  {:?}  //  {}", spec.center.distance(here) / 1000.0, spec.biome, sys.name)));
-            out.push(CardLine::Row("Radius".into(), format!("{} blocks", spec.radius as i32)));
+            out.push(CardLine::Sub(format!(
+                "{:.1} km  //  {:?}  //  {}",
+                spec.center.distance(here) / 1000.0,
+                spec.biome,
+                sys.name
+            )));
+            out.push(CardLine::Row(
+                "Radius".into(),
+                format!("{} blocks", spec.radius as i32),
+            ));
             if spec.spin.speed.abs() > 1e-6 {
-                out.push(CardLine::Row("Day".into(), fmt_time(TAU / spec.spin.speed.abs())));
+                out.push(CardLine::Row(
+                    "Day".into(),
+                    fmt_time(TAU / spec.spin.speed.abs()),
+                ));
             }
-            match spec.host.and_then(|h| sys.planets.iter().find(|q| q.id == h.id)) {
+            match spec
+                .host
+                .and_then(|h| sys.planets.iter().find(|q| q.id == h.id))
+            {
                 Some(host) => {
                     out.push(CardLine::Row("Moon of".into(), host.name.clone()));
-                    out.push(CardLine::Row("Month".into(), fmt_time(TAU / spec.orbit.speed.abs().max(1e-9))));
-                    out.push(CardLine::Row("Distance".into(), format!("{:.0} blocks", spec.orbit.radius)));
+                    out.push(CardLine::Row(
+                        "Month".into(),
+                        fmt_time(TAU / spec.orbit.speed.abs().max(1e-9)),
+                    ));
+                    out.push(CardLine::Row(
+                        "Distance".into(),
+                        format!("{:.0} blocks", spec.orbit.radius),
+                    ));
                 }
-                None => out.push(CardLine::Row("Year".into(), fmt_time(TAU / spec.orbit.speed.abs().max(1e-9)))),
+                None => out.push(CardLine::Row(
+                    "Year".into(),
+                    fmt_time(TAU / spec.orbit.speed.abs().max(1e-9)),
+                )),
             }
-            let n = stations.list.iter().filter(|s| s.station.read().unwrap().orbit.is_some_and(|o| o.planet == id)).count();
+            let n = stations
+                .list
+                .iter()
+                .filter(|s| {
+                    s.station
+                        .read()
+                        .unwrap()
+                        .orbit
+                        .is_some_and(|o| o.planet == id)
+                })
+                .count();
             if n > 0 {
                 out.push(CardLine::Row("Stations".into(), n.to_string()));
             }
             if orbiting {
                 out.push(CardLine::Sub("You are here.".into()));
-                out.push(CardLine::Buttons(vec![("Land (L)".into(), MapAction::Land, false)]));
+                out.push(CardLine::Buttons(vec![(
+                    "Land (L)".into(),
+                    MapAction::Land,
+                    false,
+                )]));
             } else {
                 out.push(CardLine::Buttons(vec![
-                    (format!("Warp  ~{}", fmt_time(warp_time())), MapAction::Go(Mode::Warp), true),
-                    (format!("Fly  ~{}", fmt_time(fly_time(here, &spec))), MapAction::Go(Mode::Fly), true),
+                    (
+                        format!("Warp  ~{}", fmt_time(warp_time())),
+                        MapAction::Go(Mode::Warp),
+                        true,
+                    ),
+                    (
+                        format!("Fly  ~{}", fmt_time(fly_time(here, &spec))),
+                        MapAction::Go(Mode::Fly),
+                        true,
+                    ),
                 ]));
             }
         }
         MapAction::Station(k) => {
-            let Some(slot) = stations.list.get(k) else { return out };
+            let Some(slot) = stations.list.get(k) else {
+                return out;
+            };
             let s = slot.station.read().unwrap();
             out.push(CardLine::Title(s.name.clone(), STATION));
             let span = s.bounds.span();
-            out.push(CardLine::Sub(format!("Station {}  //  {} blocks  //  {} x {} x {}", s.id, s.block_count(), span.x, span.z, span.y)));
+            out.push(CardLine::Sub(format!(
+                "Station {}  //  {} blocks  //  {} x {} x {}",
+                s.id,
+                s.block_count(),
+                span.x,
+                span.z,
+                span.y
+            )));
             if let Some(o) = s.orbit {
-                let planet = v.systems.iter().flat_map(|s| &s.planets).find(|p| p.id == o.planet);
+                let planet = v
+                    .systems
+                    .iter()
+                    .flat_map(|s| &s.planets)
+                    .find(|p| p.id == o.planet);
                 if let Some(p) = planet {
                     out.push(CardLine::Row("Orbits".into(), p.name.clone()));
-                    out.push(CardLine::Row("Altitude".into(), format!("{:.0} blocks", o.radius() - p.radius)));
+                    out.push(CardLine::Row(
+                        "Altitude".into(),
+                        format!("{:.0} blocks", o.radius() - p.radius),
+                    ));
                 }
                 out.push(CardLine::Row("Period".into(), fmt_time(o.period() as f32)));
             }
@@ -1365,16 +2011,37 @@ fn fill_card(c: &mut ChildSpawnerCommands, lines: Vec<CardLine>) {
                 c.spawn(colored(&s, 20.0, color));
             }
             CardLine::Sub(s) => {
-                c.spawn((colored(&s, 13.0, ACCENT), Node { margin: UiRect::bottom(px(4)), ..default() }));
+                c.spawn((
+                    colored(&s, 13.0, ACCENT),
+                    Node {
+                        margin: UiRect::bottom(px(4)),
+                        ..default()
+                    },
+                ));
             }
             CardLine::Row(k, val) => {
-                c.spawn(Node { column_gap: px(8), ..default() }).with_children(|r| {
-                    r.spawn((colored(&k, 14.0, MUTED), Node { width: px(110), ..default() }));
+                c.spawn(Node {
+                    column_gap: px(8),
+                    ..default()
+                })
+                .with_children(|r| {
+                    r.spawn((
+                        colored(&k, 14.0, MUTED),
+                        Node {
+                            width: px(110),
+                            ..default()
+                        },
+                    ));
                     r.spawn(colored(&val, 14.0, TEXT));
                 });
             }
             CardLine::Buttons(bs) => {
-                c.spawn(Node { column_gap: px(6), margin: UiRect::top(px(6)), ..default() }).with_children(|r| {
+                c.spawn(Node {
+                    column_gap: px(6),
+                    margin: UiRect::top(px(6)),
+                    ..default()
+                })
+                .with_children(|r| {
                     for (label, a, go) in bs {
                         let mut b = r.spawn(button(&label, a));
                         if go {
@@ -1397,7 +2064,14 @@ pub fn fmt_time(s: f32) -> String {
     }
 }
 
-fn refresh_texts(map: Res<GalaxyMap>, travel: Res<Travel>, space: Res<Space>, player: Single<&Player>, stations: Res<Stations>, mut texts: Query<(&MapText, &mut Text)>) {
+fn refresh_texts(
+    map: Res<GalaxyMap>,
+    travel: Res<Travel>,
+    space: Res<Space>,
+    player: Single<&Player>,
+    stations: Res<Stations>,
+    mut texts: Query<(&MapText, &mut Text)>,
+) {
     let Some(v) = map.open.as_ref() else { return };
     for (kind, mut text) in &mut texts {
         let s = match kind {
@@ -1431,13 +2105,24 @@ fn refresh_texts(map: Res<GalaxyMap>, travel: Res<Travel>, space: Res<Space>, pl
 }
 
 #[allow(clippy::type_complexity)]
-fn style_buttons(map: Res<GalaxyMap>, time: Res<Time>, mut buttons: Query<(&Hovered, Has<Pressed>, &MapAction, &mut BackgroundColor), (With<Button>, Without<Marker>)>) {
+fn style_buttons(
+    map: Res<GalaxyMap>,
+    time: Res<Time>,
+    mut buttons: Query<
+        (&Hovered, Has<Pressed>, &MapAction, &mut BackgroundColor),
+        (With<Button>, Without<Marker>),
+    >,
+) {
     if !map.is_open() {
         return;
     }
     let k = 1.0 - (-14.0 * time.delta_secs()).exp();
     for (hovered, pressed, action, mut bg) in &mut buttons {
-        let base = if matches!(action, MapAction::Go(_)) { GO } else { BUTTON };
+        let base = if matches!(action, MapAction::Go(_)) {
+            GO
+        } else {
+            BUTTON
+        };
         let want = if pressed {
             PRESS
         } else if hovered.get() {
@@ -1448,7 +2133,12 @@ fn style_buttons(map: Res<GalaxyMap>, time: Res<Time>, mut buttons: Query<(&Hove
         // Colors ease, so buttons light up rather than snap.
         let now = bg.0.to_srgba();
         let w = want.to_srgba();
-        let c = Color::srgba(now.red + (w.red - now.red) * k, now.green + (w.green - now.green) * k, now.blue + (w.blue - now.blue) * k, now.alpha + (w.alpha - now.alpha) * k);
+        let c = Color::srgba(
+            now.red + (w.red - now.red) * k,
+            now.green + (w.green - now.green) * k,
+            now.blue + (w.blue - now.blue) * k,
+            now.alpha + (w.alpha - now.alpha) * k,
+        );
         bg.0 = c;
     }
 }

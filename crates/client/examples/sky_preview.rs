@@ -17,7 +17,10 @@ use sky::{SkyCamera, SkyPlugin, SkySeed};
 const VIEWS: [(f32, f32); 4] = [(0.0, 0.0), (1.6, 0.3), (3.2, -0.4), (4.7, 1.2)];
 
 fn main() {
-    let seed = std::env::var("SKY_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let seed = std::env::var("SKY_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -32,7 +35,10 @@ fn main() {
         .add_systems(Startup, |mut commands: Commands| {
             commands.spawn((
                 Camera3d::default(),
-                Projection::Perspective(PerspectiveProjection { fov: 70f32.to_radians(), ..default() }),
+                Projection::Perspective(PerspectiveProjection {
+                    fov: 70f32.to_radians(),
+                    ..default()
+                }),
                 SkyCamera,
             ));
         })

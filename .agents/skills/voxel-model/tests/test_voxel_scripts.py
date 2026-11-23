@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -183,7 +184,27 @@ class DoctorTests(Base):
         self.assertFalse(doctor.check_openai()[0].ok)
 
     def test_blockbench_check_reports_closed_port(self):
-        self.assertFalse(doctor.check_blockbench("http://127.0.0.1:9/bb-mcp").ok)
+        c = doctor.check_blockbench("http://127.0.0.1:9/bb-mcp")
+        self.assertFalse(c.ok)
+        self.assertEqual(c.detail, "refused")
+        self.assertIn("Open Blockbench", c.fix)
+
+    def test_blockbench_sandbox_block_is_not_reported_as_closed(self):
+        with mock.patch.object(doctor.urllib.request, "urlopen", side_effect=PermissionError("denied")):
+            c = doctor.check_blockbench("http://127.0.0.1:3000/bb-mcp")
+        self.assertEqual(c.detail, "blocked")
+        self.assertIn("network_access", c.fix)
+
+    def test_missing_key_fix_explains_agent_env_filtering(self):
+        os.environ.pop("OPENAI_API_KEY")
+        fix = doctor.check_openai()[0].fix
+        self.assertIn("ignore_default_excludes", fix)
+
+    def test_checks_carry_stage_and_ready_for(self):
+        self.assertEqual(doctor.check_openai()[0].stage, "reference")
+        self.assertEqual(doctor.check_blockbench("http://127.0.0.1:9/bb-mcp").stage, "build")
+        checks = [doctor.Check("a", True, stage="reference"), doctor.Check("b", False, stage="build")]
+        self.assertEqual(doctor.ready_for(checks), {"reference": True, "build": False})
 
 
 class PureTests(unittest.TestCase):

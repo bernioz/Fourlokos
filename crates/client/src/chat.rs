@@ -15,9 +15,9 @@
 use crate::commands::{self, Suggestions};
 use crate::map::GalaxyMap;
 use crate::menu::PlanetMenu;
+use bevy::input::InputSystems;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::AccumulatedMouseScroll;
-use bevy::input::InputSystems;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
@@ -56,7 +56,12 @@ impl Plugin for ChatPlugin {
             .init_resource::<ActionBar>()
             .add_systems(Startup, spawn_ui)
             .add_systems(PreUpdate, capture_keys.after(InputSystems))
-            .add_systems(Update, (chat_keys, commands::run, draw_chat, draw_action_bar).chain().after(crate::player::sync_camera));
+            .add_systems(
+                Update,
+                (chat_keys, commands::run, draw_chat, draw_action_bar)
+                    .chain()
+                    .after(crate::player::sync_camera),
+            );
     }
 }
 
@@ -67,6 +72,7 @@ pub enum Owner {
     StationMenu,
     Schematics,
     Inventory,
+    Dialogue,
 }
 
 #[derive(Resource, Default)]
@@ -119,7 +125,10 @@ impl TextField {
     }
 
     fn byte(&self, char_index: usize) -> usize {
-        self.text.char_indices().nth(char_index).map_or(self.text.len(), |(b, _)| b)
+        self.text
+            .char_indices()
+            .nth(char_index)
+            .map_or(self.text.len(), |(b, _)| b)
     }
 
     /// The text up to the cursor.
@@ -175,11 +184,19 @@ impl TextField {
             Key::PageUp => Edit::PageUp,
             Key::PageDown => Edit::PageDown,
             Key::ArrowLeft => {
-                self.cursor = if ctrl { self.word(-1) } else { self.cursor.saturating_sub(1) };
+                self.cursor = if ctrl {
+                    self.word(-1)
+                } else {
+                    self.cursor.saturating_sub(1)
+                };
                 Edit::Moved
             }
             Key::ArrowRight => {
-                self.cursor = if ctrl { self.word(1) } else { (self.cursor + 1).min(n) };
+                self.cursor = if ctrl {
+                    self.word(1)
+                } else {
+                    (self.cursor + 1).min(n)
+                };
                 Edit::Moved
             }
             Key::Home => {
@@ -202,11 +219,17 @@ impl TextField {
                 Edit::Changed
             }
             _ => {
-                let Some(t) = ev.text.as_ref() else { return Edit::None };
+                let Some(t) = ev.text.as_ref() else {
+                    return Edit::None;
+                };
                 if ctrl {
                     return Edit::None;
                 }
-                let add: String = t.chars().filter(|c| !c.is_control()).take(self.max.saturating_sub(n)).collect();
+                let add: String = t
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(self.max.saturating_sub(n))
+                    .collect();
                 if add.is_empty() {
                     return Edit::None;
                 }
@@ -308,7 +331,10 @@ impl Chat {
                 }
                 // Break at the last space that fits, else mid-word.
                 let cut_chars = rest.chars().take(room).collect::<String>();
-                let cut = cut_chars.rfind(' ').filter(|&b| b > 0).map_or(cut_chars.len(), |b| b + 1);
+                let cut = cut_chars
+                    .rfind(' ')
+                    .filter(|&b| b > 0)
+                    .map_or(cut_chars.len(), |b| b + 1);
                 cur.push((rest[..cut].to_string(), color));
                 self.push(std::mem::take(&mut cur));
                 used = 0;
@@ -321,8 +347,14 @@ impl Chat {
     }
 
     fn push(&mut self, spans: Vec<(String, Color)>) {
-        info!("[CHAT] {}", spans.iter().map(|s| s.0.as_str()).collect::<String>());
-        self.lines.push(Line { spans, at: self.now });
+        info!(
+            "[CHAT] {}",
+            spans.iter().map(|s| s.0.as_str()).collect::<String>()
+        );
+        self.lines.push(Line {
+            spans,
+            at: self.now,
+        });
         if self.lines.len() > KEPT {
             self.lines.remove(0);
         }
@@ -370,6 +402,11 @@ pub struct ActionBar {
 }
 
 impl ActionBar {
+    /// What it says now (kept after it fades).
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
     pub fn show(&mut self, text: &str) {
         self.text = text.into();
         self.left = 3.0;
@@ -440,7 +477,8 @@ fn chat_keys(
     chat.field.tick(time.delta_secs());
     if scroll.delta.y != 0.0 {
         let max = chat.lines.len().saturating_sub(OPEN_LINES);
-        chat.scroll = (chat.scroll as i32 + scroll.delta.y.signum() as i32).clamp(0, max as i32) as usize;
+        chat.scroll =
+            (chat.scroll as i32 + scroll.delta.y.signum() as i32).clamp(0, max as i32) as usize;
         chat.dirty = true;
     }
     let ctrl = keyboard.ctrl;
@@ -477,10 +515,13 @@ fn chat_keys(
                     chat.field.set(&text);
                     chat.suggest.keep_after_tab();
                 } else {
-                    chat.suggest.refresh(&chat.field.text, chat.field.before(), &ctx);
+                    chat.suggest
+                        .refresh(&chat.field.text, chat.field.before(), &ctx);
                 }
             }
-            Edit::Up | Edit::Down if chat.suggest.visible() => chat.suggest.select(if edit == Edit::Up { -1 } else { 1 }),
+            Edit::Up | Edit::Down if chat.suggest.visible() => {
+                chat.suggest.select(if edit == Edit::Up { -1 } else { 1 })
+            }
             Edit::Up | Edit::Down => {
                 // Back and forth through what you sent.
                 let n = chat.sent.len();
@@ -499,12 +540,17 @@ fn chat_keys(
                 chat.recall = next;
                 let text = next.map_or(chat.draft.clone(), |i| chat.sent[i].clone());
                 chat.field.set(&text);
-                chat.suggest.refresh(&chat.field.text, chat.field.before(), &ctx);
+                chat.suggest
+                    .refresh(&chat.field.text, chat.field.before(), &ctx);
                 chat.suggest.hide();
             }
             Edit::PageUp | Edit::PageDown => {
                 let max = chat.lines.len().saturating_sub(OPEN_LINES) as i32;
-                let d = if edit == Edit::PageUp { OPEN_LINES as i32 - 1 } else { 1 - OPEN_LINES as i32 };
+                let d = if edit == Edit::PageUp {
+                    OPEN_LINES as i32 - 1
+                } else {
+                    1 - OPEN_LINES as i32
+                };
                 chat.scroll = (chat.scroll as i32 + d).clamp(0, max) as usize;
             }
             Edit::Changed | Edit::Moved => {
@@ -535,33 +581,73 @@ struct BarText;
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         LinesBox,
-        Node { position_type: PositionType::Absolute, left: px(4), bottom: px(40), width: px(WIDTH), flex_direction: FlexDirection::Column, ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(4),
+            bottom: px(40),
+            width: px(WIDTH),
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
         GlobalZIndex(20),
     ));
     commands.spawn((
         SuggestBox,
-        Node { position_type: PositionType::Absolute, bottom: px(30), left: px(4), flex_direction: FlexDirection::Column, align_items: AlignItems::Stretch, ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: px(30),
+            left: px(4),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Stretch,
+            ..default()
+        },
         GlobalZIndex(21),
         Visibility::Hidden,
     ));
     commands
         .spawn((
             InputBar,
-            Node { position_type: PositionType::Absolute, left: px(2), right: px(2), bottom: px(2), height: px(24), padding: UiRect::horizontal(px(4)), align_items: AlignItems::Center, ..default() },
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(2),
+                right: px(2),
+                bottom: px(2),
+                height: px(24),
+                padding: UiRect::horizontal(px(4)),
+                align_items: AlignItems::Center,
+                ..default()
+            },
             BackgroundColor(BACK),
             GlobalZIndex(20),
             Visibility::Hidden,
         ))
         .with_children(|b| {
-            b.spawn((InputText, Text::default(), TextFont { font_size: FontSize::Px(FONT), ..default() }, TextColor(WHITE)));
+            b.spawn((
+                InputText,
+                Text::default(),
+                TextFont {
+                    font_size: FontSize::Px(FONT),
+                    ..default()
+                },
+                TextColor(WHITE),
+            ));
         });
     commands.spawn((
         BarText,
         Text::default(),
-        TextFont { font_size: FontSize::Px(17.0), ..default() },
+        TextFont {
+            font_size: FontSize::Px(17.0),
+            ..default()
+        },
         TextColor(WHITE),
         TextLayout::justify(Justify::Center),
-        Node { position_type: PositionType::Absolute, bottom: px(110), width: percent(100), justify_content: JustifyContent::Center, ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: px(110),
+            width: percent(100),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
         GlobalZIndex(19),
     ));
 }
@@ -569,7 +655,14 @@ fn spawn_ui(mut commands: Commands) {
 /// A piece of text with its own color, under a `Text`.
 fn spans(parent: &mut ChildSpawnerCommands, pieces: &[(String, Color)], alpha: f32) {
     for (s, c) in pieces {
-        parent.spawn((TextSpan::new(s.clone()), TextFont { font_size: FontSize::Px(FONT), ..default() }, TextColor(c.with_alpha(alpha))));
+        parent.spawn((
+            TextSpan::new(s.clone()),
+            TextFont {
+                font_size: FontSize::Px(FONT),
+                ..default()
+            },
+            TextColor(c.with_alpha(alpha)),
+        ));
     }
 }
 
@@ -580,7 +673,10 @@ fn draw_chat(
     lines_box: Single<Entity, With<LinesBox>>,
     mut bar: Single<&mut Visibility, (With<InputBar>, Without<SuggestBox>)>,
     input: Single<Entity, With<InputText>>,
-    suggest_box: Single<(Entity, &mut Node, &mut Visibility), (With<SuggestBox>, Without<InputBar>)>,
+    suggest_box: Single<
+        (Entity, &mut Node, &mut Visibility),
+        (With<SuggestBox>, Without<InputBar>),
+    >,
     mut last_fade: Local<Vec<u8>>,
     mut last_blink: Local<bool>,
 ) {
@@ -588,7 +684,9 @@ fn draw_chat(
     let now = chat.now;
     let shown: Vec<(usize, f32)> = if chat.open {
         let end = chat.lines.len().saturating_sub(chat.scroll);
-        (end.saturating_sub(OPEN_LINES)..end).map(|i| (i, 1.0)).collect()
+        (end.saturating_sub(OPEN_LINES)..end)
+            .map(|i| (i, 1.0))
+            .collect()
     } else {
         let start = chat.lines.len().saturating_sub(CLOSED_LINES);
         (start..chat.lines.len())
@@ -611,14 +709,34 @@ fn draw_chat(
     commands.entity(*lines_box).despawn_related::<Children>();
     commands.entity(*lines_box).with_children(|col| {
         for &(i, a) in &shown {
-            col.spawn((Node { width: percent(100), height: px(LINE_H), padding: UiRect::left(px(3)), align_items: AlignItems::Center, ..default() }, BackgroundColor(BACK.with_alpha(0.5 * a))))
-                .with_children(|row| {
-                    row.spawn((Text::default(), TextFont { font_size: FontSize::Px(FONT), ..default() })).with_children(|t| spans(t, &chat.lines[i].spans, a));
-                });
+            col.spawn((
+                Node {
+                    width: percent(100),
+                    height: px(LINE_H),
+                    padding: UiRect::left(px(3)),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(BACK.with_alpha(0.5 * a)),
+            ))
+            .with_children(|row| {
+                row.spawn((
+                    Text::default(),
+                    TextFont {
+                        font_size: FontSize::Px(FONT),
+                        ..default()
+                    },
+                ))
+                .with_children(|t| spans(t, &chat.lines[i].spans, a));
+            });
         }
     });
 
-    **bar = if chat.open { Visibility::Inherited } else { Visibility::Hidden };
+    **bar = if chat.open {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
     commands.entity(*input).despawn_related::<Children>();
     let (sbox, mut snode, mut svis) = suggest_box.into_inner();
     commands.entity(sbox).despawn_related::<Children>();
@@ -660,7 +778,9 @@ fn draw_chat(
             push("_".into(), WHITE);
         }
     }
-    commands.entity(*input).with_children(|t| spans(t, &pieces, 1.0));
+    commands
+        .entity(*input)
+        .with_children(|t| spans(t, &pieces, 1.0));
 
     // Suggestions (or the usage of what comes next) above the line, under the word they complete.
     let rows = chat.suggest.rows();
@@ -672,23 +792,46 @@ fn draw_chat(
     snode.left = px(6.0 + chat.suggest.column() as f32 * CHAR_W);
     commands.entity(sbox).with_children(|col| {
         for (s, c) in rows {
-            col.spawn((Node { padding: UiRect::horizontal(px(3)), height: px(LINE_H - 2.0), align_items: AlignItems::Center, ..default() }, BackgroundColor(SUGGEST_BACK)))
-                .with_children(|row| {
-                    row.spawn((Text::new(s), TextFont { font_size: FontSize::Px(FONT), ..default() }, TextColor(c)));
-                });
+            col.spawn((
+                Node {
+                    padding: UiRect::horizontal(px(3)),
+                    height: px(LINE_H - 2.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(SUGGEST_BACK),
+            ))
+            .with_children(|row| {
+                row.spawn((
+                    Text::new(s),
+                    TextFont {
+                        font_size: FontSize::Px(FONT),
+                        ..default()
+                    },
+                    TextColor(c),
+                ));
+            });
         }
     });
 }
 
-fn draw_action_bar(mut bar: ResMut<ActionBar>, mut text: Single<(&mut Text, &mut TextColor), With<BarText>>, time: Res<Time>) {
+fn draw_action_bar(
+    mut bar: ResMut<ActionBar>,
+    mut text: Single<(&mut Text, &mut TextColor), With<BarText>>,
+    time: Res<Time>,
+) {
     bar.left = (bar.left - time.delta_secs()).max(0.0);
     let a = bar.left.min(1.0);
-    let want = if a > 0.0 { bar.text.clone() } else { String::new() };
-    if text.0 .0 != want {
-        text.0 .0 = want;
+    let want = if a > 0.0 {
+        bar.text.clone()
+    } else {
+        String::new()
+    };
+    if text.0.0 != want {
+        text.0.0 = want;
     }
     let c = WHITE.with_alpha(a);
-    if text.1 .0 != c {
-        text.1 .0 = c;
+    if text.1.0 != c {
+        text.1.0 = c;
     }
 }

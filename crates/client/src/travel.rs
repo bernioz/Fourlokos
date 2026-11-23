@@ -13,8 +13,10 @@ use crate::world::{Clock, Space};
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use orbit_core::planet::{PlanetSpec, Terrain};
-use orbit_core::player::{gravity_at, Body};
-use orbit_core::travel::{circularize, circularized, cruise, cruise_time, descend, in_orbit, orbit_radius, PILOT_ACCEL};
+use orbit_core::player::{Body, gravity_at};
+use orbit_core::travel::{
+    PILOT_ACCEL, circularize, circularized, cruise, cruise_time, descend, in_orbit, orbit_radius,
+};
 
 /// Cruise thrust between planets, blocks/s², and the speed it arrives at its aim point with.
 pub const CRUISE_ACCEL: f32 = 120.0;
@@ -37,7 +39,12 @@ impl Plugin for TravelPlugin {
         app.init_resource::<Travel>()
             .init_resource::<Pilot>()
             .init_resource::<WarpFx>()
-            .add_systems(Update, run_travel.after(crate::world::MovePlanets).before(crate::player::move_player));
+            .add_systems(
+                Update,
+                run_travel
+                    .after(crate::world::MovePlanets)
+                    .before(crate::player::move_player),
+            );
     }
 }
 
@@ -80,14 +87,31 @@ pub enum Job {
     Launch { planet: u64, target: f32 },
     /// Down onto the ground below, or a rocket onto its pad: where the middle of its base goes
     /// and the way it faces there (planet-local).
-    Land { planet: u64, pad: Option<(Vec3, Vec3)> },
+    Land {
+        planet: u64,
+        pad: Option<(Vec3, Vec3)>,
+    },
     /// A rocket onto a ready landing pad of a station: over it, then down onto it.
-    Dock { station: String, berth: orbit_core::rocket::Berth },
+    Dock {
+        station: String,
+        berth: orbit_core::rocket::Berth,
+    },
     /// `side` offsets the aim so the arrival is beside the planet, not into it; `capture` once
     /// the burn into orbit has begun.
-    Cruise { target: Target, side: Vec3, top: f32, capture: bool },
+    Cruise {
+        target: Target,
+        side: Vec3,
+        top: f32,
+        capture: bool,
+    },
     /// `dir`: the way the jump goes, fixed when the tunnel opens.
-    Warp { target: Target, side: Vec3, phase: WarpPhase, t: f32, dir: Vec3 },
+    Warp {
+        target: Target,
+        side: Vec3,
+        phase: WarpPhase,
+        t: f32,
+        dir: Vec3,
+    },
 }
 
 #[derive(Resource, Default)]
@@ -108,7 +132,13 @@ pub struct Travel {
 impl Travel {
     /// True in the part of a warp that cannot be stopped.
     pub fn locked(&self) -> bool {
-        matches!(self.job, Some(Job::Warp { phase: WarpPhase::Spool | WarpPhase::Tunnel, .. }))
+        matches!(
+            self.job,
+            Some(Job::Warp {
+                phase: WarpPhase::Spool | WarpPhase::Tunnel,
+                ..
+            })
+        )
     }
 }
 
@@ -143,7 +173,8 @@ pub fn travel_blocker(body: &Body, space: &Space) -> Option<String> {
     let id = body.planet()?;
     let p = space.planets.get(&id)?;
     let (pos, vel) = relative(body, p.spec.center);
-    (!in_orbit(pos, vel, p.spec.pull())).then(|| "Not in a stable orbit yet: launch to orbit (or circularize by hand).".into())
+    (!in_orbit(pos, vel, p.spec.pull()))
+        .then(|| "Not in a stable orbit yet: launch to orbit (or circularize by hand).".into())
 }
 
 /// Estimated seconds to fly (cruise) from `from` to a planet.
@@ -197,26 +228,46 @@ fn onto_pad(p: Vec3, v: Vec3, target: Vec3, pull: orbit_core::player::Pull) -> V
 
 /// The radius of the free lane nearest a rocket's parking orbit round planet `id`: where K takes
 /// it, clear of every station and parked rocket.
-fn free_lane(body: &Body, space: &Space, stations: &crate::station::Stations, id: u64, t: f64) -> Option<f32> {
+fn free_lane(
+    body: &Body,
+    space: &Space,
+    stations: &crate::station::Stations,
+    id: u64,
+    t: f64,
+) -> Option<f32> {
     let p = space.planets.get(&id)?;
     let (lanes, pull) = crate::station::lanes_of(space, id, &stations.tethers)?;
     let (pos, vel) = relative(body, p.spec.center);
-    let heading = if vel.reject_from(pos).length() > 1.0 { vel } else { body.world_dir(body.forward) };
+    let heading = if vel.reject_from(pos).length() > 1.0 {
+        vel
+    } else {
+        body.world_dir(body.forward)
+    };
     let at = pos.normalize_or(Vec3::Y) * orbit_radius(p.spec.gravity_radius());
     let want = orbit_core::station::StationOrbit::through(id, at, Quat::IDENTITY, heading, pull, t);
     let others = stations.orbits_around(id, None);
-    orbit_core::station::find_slot(&want, &lanes, &others, crate::station::coasting(pull), None).ok().map(|o| o.radius())
+    orbit_core::station::find_slot(&want, &lanes, &others, crate::station::coasting(pull), None)
+        .ok()
+        .map(|o| o.radius())
 }
 
 /// The pad nearest below a rocket (station `rocket`) on planet `id`: where the middle of its base
 /// would stand, and the way it would face (planet-local).
-fn find_pad(body: &Body, space: &Space, stations: &crate::station::Stations, rocket: &str, id: u64) -> Option<(Vec3, Vec3)> {
+fn find_pad(
+    body: &Body,
+    space: &Space,
+    stations: &crate::station::Stations,
+    rocket: &str,
+    id: u64,
+) -> Option<(Vec3, Vec3)> {
     let p = space.planets.get(&id)?;
     let ground = p.voxel.as_ref()?.read().unwrap();
     let r = stations.by_id(rocket)?.station.read().unwrap();
     let below = p.spec.to_local(body.world_point(body.pos));
     // The way the rocket faces, not the camera.
-    let face = p.spec.rotation.inverse() * r.flight.map_or(body.world_dir(body.forward), |f| f.rotation * Vec3::Z);
+    let face = p.spec.rotation.inverse()
+        * r.flight
+            .map_or(body.world_dir(body.forward), |f| f.rotation * Vec3::Z);
     let lay = orbit_core::rocket::find_pad(&ground, &r, below, face)?;
     Some((lay.base(&ground), lay.turn(&ground).z_axis))
 }
@@ -226,18 +277,31 @@ pub const DOCK_RANGE: f64 = 2500.0;
 
 /// The nearest station (within `DOCK_RANGE`) with a ready landing pad where the rocket `rocket`
 /// fits: the station's id and how the rocket would stand on it.
-fn find_berth(body: &Body, space: &Space, stations: &crate::station::Stations, rocket: &str, t: f64) -> Option<(String, orbit_core::rocket::Berth)> {
+fn find_berth(
+    body: &Body,
+    space: &Space,
+    stations: &crate::station::Stations,
+    rocket: &str,
+    t: f64,
+) -> Option<(String, orbit_core::rocket::Berth)> {
     let r = stations.by_id(rocket)?.station.read().unwrap().clone();
     let here = body.world_point(body.pos);
-    let front = r.flight.map_or(body.world_dir(body.forward), |f| f.rotation * Vec3::Z);
+    let front = r
+        .flight
+        .map_or(body.world_dir(body.forward), |f| f.rotation * Vec3::Z);
     let mut best: Option<(f64, String, orbit_core::rocket::Berth)> = None;
     for (s, f) in stations.placed(space, t) {
         let d = f.center.distance(here);
-        if s.is_rocket() || s.flight.is_some() || d > DOCK_RANGE || best.as_ref().is_some_and(|b| b.0 < d) {
+        if s.is_rocket()
+            || s.flight.is_some()
+            || d > DOCK_RANGE
+            || best.as_ref().is_some_and(|b| b.0 < d)
+        {
             continue;
         }
         let near = f.at(&s).to_local(here);
-        if let Some(b) = orbit_core::rocket::find_berth(&s, &r, near, f.rotation.inverse() * front) {
+        if let Some(b) = orbit_core::rocket::find_berth(&s, &r, near, f.rotation.inverse() * front)
+        {
             best = Some((d, s.id.clone(), b));
         }
     }
@@ -253,7 +317,11 @@ fn onto_berth(p: Vec3, v: Vec3, target: Vec3) -> Vec3 {
     let off = across.length();
     let alt = p.y - target.y;
     const OVER: f32 = 8.0;
-    let want_y = if off > 1.5 { ((OVER - alt) * 0.8).clamp(-40.0, 40.0) } else { -(alt * 0.5).clamp(0.8, 15.0) };
+    let want_y = if off > 1.5 {
+        ((OVER - alt) * 0.8).clamp(-40.0, 40.0)
+    } else {
+        -(alt * 0.5).clamp(0.8, 15.0)
+    };
     // Across only once high enough not to sweep through the station (slower when low).
     let high = ((alt + 2.0) / OVER).clamp(0.15, 1.0);
     let sideways = across.normalize_or_zero() * (off * 0.5).min(120.0) * high;
@@ -261,7 +329,10 @@ fn onto_berth(p: Vec3, v: Vec3, target: Vec3) -> Vec3 {
 }
 
 fn name_of(space: &Space, id: u64) -> String {
-    space.planets.get(&id).map_or_else(|| "the planet".into(), |p| p.spec.name.clone())
+    space
+        .planets
+        .get(&id)
+        .map_or_else(|| "the planet".into(), |p| p.spec.name.clone())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -300,11 +371,18 @@ fn run_travel(
                     body.flying = false;
                     let parking = orbit_radius(slot.spec.gravity_radius());
                     // A rocket goes up into a lane with room, so it meets no station.
-                    let lane = rockets.is_piloting().then(|| free_lane(body, &space, &stations, id, clock.0)).flatten();
+                    let lane = rockets
+                        .is_piloting()
+                        .then(|| free_lane(body, &space, &stations, id, clock.0))
+                        .flatten();
                     let target = lane.unwrap_or(parking);
                     travel.job = Some(Job::Launch { planet: id, target });
                     travel.message = match lane {
-                        Some(r) => format!("Launching into a free orbit lane {:.0} blocks over {}...", r - slot.spec.radius, slot.spec.name),
+                        Some(r) => format!(
+                            "Launching into a free orbit lane {:.0} blocks over {}...",
+                            r - slot.spec.radius,
+                            slot.spec.name
+                        ),
                         None => format!("Launching to orbit around {}...", slot.spec.name),
                     };
                 }
@@ -312,18 +390,38 @@ fn run_travel(
             },
             Request::Land => match body.planet() {
                 // A rocket out in orbit near a station with a pad comes down on that.
-                _ if let Some((station, berth)) = body.gravity_source.is_none().then(|| rockets.piloting.as_ref().and_then(|p| find_berth(body, &space, &stations, &p.id, clock.0))).flatten() => {
-                    let name = stations.by_id(&station).map_or_else(String::new, |s| s.station.read().unwrap().name.clone());
+                _ if let Some((station, berth)) = body
+                    .gravity_source
+                    .is_none()
+                    .then(|| {
+                        rockets
+                            .piloting
+                            .as_ref()
+                            .and_then(|p| find_berth(body, &space, &stations, &p.id, clock.0))
+                    })
+                    .flatten() =>
+                {
+                    let name = stations
+                        .by_id(&station)
+                        .map_or_else(String::new, |s| s.station.read().unwrap().name.clone());
                     travel.message = format!("Coming down on a landing pad of {name}...");
                     travel.job = Some(Job::Dock { station, berth });
                 }
                 Some(id) => {
                     body.flying = false;
-                    let pad = rockets.piloting.as_ref().and_then(|p| find_pad(body, &space, &stations, &p.id, id));
+                    let pad = rockets
+                        .piloting
+                        .as_ref()
+                        .and_then(|p| find_pad(body, &space, &stations, &p.id, id));
                     travel.job = Some(Job::Land { planet: id, pad });
                     travel.message = match (rockets.is_piloting(), pad) {
-                        (true, Some(_)) => format!("Coming down onto a pad on {}...", name_of(&space, id)),
-                        (true, None) => format!("No landing pad or flat 3x3 below: coming straight down on {}...", name_of(&space, id)),
+                        (true, Some(_)) => {
+                            format!("Coming down onto a pad on {}...", name_of(&space, id))
+                        }
+                        (true, None) => format!(
+                            "No landing pad or flat 3x3 below: coming straight down on {}...",
+                            name_of(&space, id)
+                        ),
                         _ => format!("Descending to {}...", name_of(&space, id)),
                     };
                 }
@@ -334,13 +432,27 @@ fn run_travel(
                     travel.message = why;
                 } else if body.planet() == Some(target.planet) {
                     travel.message = "You are already orbiting it.".into();
-                } else if let Some(spec) = space.planet_spec(target.sector, target.planet, clock.0) {
+                } else if let Some(spec) = space.planet_spec(target.sector, target.planet, clock.0)
+                {
                     let here = body.world_point(body.pos);
                     let dir = (spec.center - here).as_vec3().normalize_or(Vec3::X);
-                    let side = dir.cross(spec.orbit.tilt * Vec3::Y).normalize_or(dir.any_orthonormal_vector());
+                    let side = dir
+                        .cross(spec.orbit.tilt * Vec3::Y)
+                        .normalize_or(dir.any_orthonormal_vector());
                     travel.job = Some(match mode {
-                        Mode::Fly => Job::Cruise { target, side, top: cruise_top(here.distance(spec.center) as f32), capture: false },
-                        Mode::Warp => Job::Warp { target, side, phase: WarpPhase::Depart, t: 0.0, dir },
+                        Mode::Fly => Job::Cruise {
+                            target,
+                            side,
+                            top: cruise_top(here.distance(spec.center) as f32),
+                            capture: false,
+                        },
+                        Mode::Warp => Job::Warp {
+                            target,
+                            side,
+                            phase: WarpPhase::Depart,
+                            t: 0.0,
+                            dir,
+                        },
                     });
                     travel.message = match mode {
                         Mode::Fly => format!("Burning for {}...", spec.name),
@@ -352,15 +464,38 @@ fn run_travel(
     }
 
     // Taking the controls switches the autopilot off (not mid-warp).
-    let manual = !map.is_open() && [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Space, KeyCode::ShiftLeft, KeyCode::KeyX].iter().any(|k| keys.just_pressed(*k));
-    if manual && travel.job.is_some() && !travel.locked() && !matches!(travel.job, Some(Job::Warp { phase: WarpPhase::Exit, .. })) {
+    let manual = !map.is_open()
+        && [
+            KeyCode::KeyW,
+            KeyCode::KeyA,
+            KeyCode::KeyS,
+            KeyCode::KeyD,
+            KeyCode::Space,
+            KeyCode::ShiftLeft,
+            KeyCode::KeyX,
+        ]
+        .iter()
+        .any(|k| keys.just_pressed(*k));
+    if manual
+        && travel.job.is_some()
+        && !travel.locked()
+        && !matches!(
+            travel.job,
+            Some(Job::Warp {
+                phase: WarpPhase::Exit,
+                ..
+            })
+        )
+    {
         travel.job = None;
         travel.message = "Manual control.".into();
     }
 
     let dt = time.delta_secs().min(0.1);
     let mut next = None;
-    let Some(job) = travel.job.as_mut() else { return };
+    let Some(job) = travel.job.as_mut() else {
+        return;
+    };
     let (done, message): (bool, Option<String>) = match job {
         Job::Launch { planet, target } => match space.planets.get(planet) {
             None => (true, Some("Lost the planet.".into())),
@@ -368,10 +503,27 @@ fn run_travel(
                 let pull = slot.spec.pull();
                 let (p, v) = relative(body, slot.spec.center);
                 if circularized(p, v, *target, pull) {
-                    let rocket = if rockets.is_piloting() { " R to park the rocket here," } else { "" };
-                    (true, Some(format!("In orbit around {}.{rocket} Open the map (M) to travel, L to land.", slot.spec.name)))
+                    let rocket = if rockets.is_piloting() {
+                        " R to park the rocket here,"
+                    } else {
+                        ""
+                    };
+                    (
+                        true,
+                        Some(format!(
+                            "In orbit around {}.{rocket} Open the map (M) to travel, L to land.",
+                            slot.spec.name
+                        )),
+                    )
                 } else {
-                    pilot.thrust = Some(circularize(p, v, *target, pull, body.world_dir(body.forward), PILOT_ACCEL));
+                    pilot.thrust = Some(circularize(
+                        p,
+                        v,
+                        *target,
+                        pull,
+                        body.world_dir(body.forward),
+                        PILOT_ACCEL,
+                    ));
                     pilot.hands_off = true;
                     (false, None)
                 }
@@ -381,7 +533,10 @@ fn run_travel(
             None => (true, Some("Lost the planet.".into())),
             Some(_) if body.on_ground => {
                 travel.landed = true;
-                (true, Some(format!("Landed on {}.", name_of(&space, *planet))))
+                (
+                    true,
+                    Some(format!("Landed on {}.", name_of(&space, *planet))),
+                )
             }
             Some(slot) if pad.is_some() => {
                 let (base, face) = pad.unwrap();
@@ -419,7 +574,10 @@ fn run_travel(
                     let carried = f.spin.cross((world - f.planet_center).as_vec3());
                     let v = inv * (body.world_vel() - carried);
                     let target = berth.point(Vec3::new(0.5, 0.0, 0.5));
-                    travel.align = Some((f.rotation * Vec3::Y, f.rotation * (berth.rotation() * Vec3::Z)));
+                    travel.align = Some((
+                        f.rotation * Vec3::Y,
+                        f.rotation * (berth.rotation() * Vec3::Z),
+                    ));
                     pilot.hands_off = true;
                     if p.distance(target) < 0.4 && v.length() < 1.5 {
                         travel.docked = Some((station.clone(), *berth));
@@ -433,7 +591,12 @@ fn run_travel(
                 }
             }
         }
-        Job::Cruise { target, side, top, capture } => match space.planet_spec(target.sector, target.planet, clock.0) {
+        Job::Cruise {
+            target,
+            side,
+            top,
+            capture,
+        } => match space.planet_spec(target.sector, target.planet, clock.0) {
             None => (true, Some("Lost the destination.".into())),
             Some(ts) => {
                 let gr = ts.gravity_radius();
@@ -443,16 +606,28 @@ fn run_travel(
                 // Offsets as f32 once taken in f64: small or not, they are exact enough.
                 let to_aim = (aim - world).as_vec3();
                 let v = body.world_vel();
-                if !*capture && (body.planet() == Some(target.planet) || world.distance(aim) < 150.0) {
+                if !*capture
+                    && (body.planet() == Some(target.planet) || world.distance(aim) < 150.0)
+                {
                     *capture = true;
                 }
                 pilot.hands_off = true;
                 if *capture {
                     let (p, v) = relative(body, ts.center);
                     if circularized(p, v, orbit_radius(gr), pull) {
-                        (true, Some(format!("Arrived: in orbit around {}. L to land.", ts.name)))
+                        (
+                            true,
+                            Some(format!("Arrived: in orbit around {}. L to land.", ts.name)),
+                        )
                     } else {
-                        pilot.thrust = Some(circularize(p, v, orbit_radius(gr), pull, -*side, PILOT_ACCEL * 1.5));
+                        pilot.thrust = Some(circularize(
+                            p,
+                            v,
+                            orbit_radius(gr),
+                            pull,
+                            -*side,
+                            PILOT_ACCEL * 1.5,
+                        ));
                         body.look_toward((ts.center - world).as_vec3(), 1.0, dt);
                         (false, None)
                     }
@@ -468,7 +643,13 @@ fn run_travel(
                 }
             }
         },
-        Job::Warp { target, side, phase, t, dir } => match space.planet_spec(target.sector, target.planet, clock.0) {
+        Job::Warp {
+            target,
+            side,
+            phase,
+            t,
+            dir,
+        } => match space.planet_spec(target.sector, target.planet, clock.0) {
             None => (true, Some("Lost the destination.".into())),
             Some(ts) => {
                 *t += dt;
@@ -476,14 +657,17 @@ fn run_travel(
                 let v = body.world_vel();
                 let aim = ts.center + (*side * orbit_radius(ts.gravity_radius())).as_dvec3();
                 let to_aim = (aim - world).as_vec3();
-                let up = Vec3::Y.reject_from(*dir).normalize_or(dir.any_orthonormal_vector());
+                let up = Vec3::Y
+                    .reject_from(*dir)
+                    .normalize_or(dir.any_orthonormal_vector());
                 let mut message = None;
                 pilot.hands_off = true;
                 match *phase {
                     WarpPhase::Depart => {
                         pilot.thrust = Some(departure(body, &space, to_aim, WARP_ENTRY + 250.0));
                         body.look_toward(if v.length() > 30.0 { v } else { to_aim }, 1.5, dt);
-                        let clear = body.gravity_source.is_none() && (body.orbiting.is_none() || *t > 12.0);
+                        let clear =
+                            body.gravity_source.is_none() && (body.orbiting.is_none() || *t > 12.0);
                         if clear && *t > DEPART_MIN && v.length() > WARP_ENTRY {
                             (*phase, *t) = (WarpPhase::Spool, 0.0);
                             message = Some(format!("Warp to {}: charging the drive...", ts.name));
@@ -495,7 +679,9 @@ fn run_travel(
                         body.look_toward(v, 2.0, dt);
                         fx.progress = *t / SPOOL;
                         if *t > SPOOL {
-                            *dir = body.world_dir(body.look_dir()).normalize_or(to_aim.normalize_or(Vec3::X));
+                            *dir = body
+                                .world_dir(body.look_dir())
+                                .normalize_or(to_aim.normalize_or(Vec3::X));
                             (*phase, *t) = (WarpPhase::Tunnel, 0.0);
                             message = Some(format!("Hyperspace: {}...", ts.name));
                         }
@@ -516,12 +702,21 @@ fn run_travel(
                         }
                     }
                     WarpPhase::Exit => {
-                        pilot.thrust = Some(cruise(to_aim, v, ARRIVE_SPEED, EXIT_SPEED, CRUISE_ACCEL));
+                        pilot.thrust =
+                            Some(cruise(to_aim, v, ARRIVE_SPEED, EXIT_SPEED, CRUISE_ACCEL));
                         body.look_toward(to_aim, 1.0, dt);
                         fx.progress = *t / EXIT;
                         if *t > EXIT {
-                            next = Some(Job::Cruise { target: *target, side: *side, top: EXIT_SPEED, capture: false });
-                            message = Some(format!("Out of hyperspace: braking into orbit around {}...", ts.name));
+                            next = Some(Job::Cruise {
+                                target: *target,
+                                side: *side,
+                                top: EXIT_SPEED,
+                                capture: false,
+                            });
+                            message = Some(format!(
+                                "Out of hyperspace: braking into orbit around {}...",
+                                ts.name
+                            ));
                         }
                     }
                 }

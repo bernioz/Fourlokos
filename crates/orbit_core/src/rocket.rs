@@ -23,7 +23,7 @@
 use crate::block::{self, Block};
 use crate::planet::Planet;
 use crate::sphere::CellId;
-use crate::station::{Station, MAX_Y};
+use crate::station::{MAX_Y, Station};
 use glam::{DVec3, IVec3, Mat3, Vec3};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -59,12 +59,20 @@ impl Problem {
     pub fn message(self) -> &'static str {
         match self {
             Problem::NoEngine => "A rocket needs at least one Engine",
-            Problem::TooBig => "Too big for a rocket: at most 128 blocks across, 48 tall, 8000 blocks",
-            Problem::NotFlat => "A rocket needs a pad: a flat 3x3 of solid ground under its middle, all at one height",
-            Problem::PadTaken => "Something is on the launch pad: the 3x3 under the rocket must be clear but for it",
+            Problem::TooBig => {
+                "Too big for a rocket: at most 128 blocks across, 48 tall, 8000 blocks"
+            }
+            Problem::NotFlat => {
+                "A rocket needs a pad: a flat 3x3 of solid ground under its middle, all at one height"
+            }
+            Problem::PadTaken => {
+                "Something is on the launch pad: the 3x3 under the rocket must be clear but for it"
+            }
             Problem::Blocked => "Something is over the rocket or in its way: it needs open sky",
             Problem::NoGround => "No ground there to stand a rocket on",
-            Problem::NoStationPad => "On a station a rocket stands on a Landing Pad: a full square of them, lit up, under its middle",
+            Problem::NoStationPad => {
+                "On a station a rocket stands on a Landing Pad: a full square of them, lit up, under its middle"
+            }
         }
     }
 }
@@ -84,21 +92,40 @@ const MAX_MARKED: usize = 256;
 
 impl From<Problem> for Fault {
     fn from(problem: Problem) -> Self {
-        Self { problem, cells: Vec::new(), first: None }
+        Self {
+            problem,
+            cells: Vec::new(),
+            first: None,
+        }
     }
 }
 
 impl Fault {
     /// What went wrong, saying which block is in the way and where.
     pub fn message(&self) -> String {
-        let marked = if self.cells.is_empty() { "" } else { " (marked in red)" };
+        let marked = if self.cells.is_empty() {
+            ""
+        } else {
+            " (marked in red)"
+        };
         match (self.problem, self.first) {
             (Problem::Blocked, Some((b, y))) => {
                 let n = self.cells.len();
-                let more = if n > 1 { format!(" and {} more block{}", n - 1, if n == 2 { "" } else { "s" }) } else { String::new() };
-                format!("{} {y} block{} up is over the rocket{more}{marked}: it needs open sky, break it or move the rocket", block::name(b), if y == 1 { "" } else { "s" })
+                let more = if n > 1 {
+                    format!(" and {} more block{}", n - 1, if n == 2 { "" } else { "s" })
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{} {y} block{} up is over the rocket{more}{marked}: it needs open sky, break it or move the rocket",
+                    block::name(b),
+                    if y == 1 { "" } else { "s" }
+                )
             }
-            (Problem::PadTaken, Some((b, _))) => format!("{} is on the launch pad{marked}: the 3x3 under the rocket must be clear but for it", block::name(b)),
+            (Problem::PadTaken, Some((b, _))) => format!(
+                "{} is on the launch pad{marked}: the 3x3 under the rocket must be clear but for it",
+                block::name(b)
+            ),
             (p, _) => format!("{}{marked}", p.message()),
         }
     }
@@ -130,7 +157,14 @@ impl Lay {
         if k0 < 0 || k0 >= g.layers as i64 {
             return None;
         }
-        Some(Self::snapped(planet, face, a.floor() as i64, b.floor() as i64, k0, forward))
+        Some(Self::snapped(
+            planet,
+            face,
+            a.floor() as i64,
+            b.floor() as i64,
+            k0,
+            forward,
+        ))
     }
 
     /// Origin in grid cell (i0, j0, k0) of `face`, +z the grid direction nearest `forward`.
@@ -138,27 +172,50 @@ impl Lay {
         let g = &planet.grid;
         let r = g.radius(k0.max(0) as usize) as f64;
         let mid = g.face_point(face, i0 as f64 + 0.5, j0 as f64 + 0.5, r);
-        let di = (g.face_point(face, i0 as f64 + 1.5, j0 as f64 + 0.5, r) - mid).normalize().as_vec3();
-        let dj = (g.face_point(face, i0 as f64 + 0.5, j0 as f64 + 1.5, r) - mid).normalize().as_vec3();
+        let di = (g.face_point(face, i0 as f64 + 1.5, j0 as f64 + 0.5, r) - mid)
+            .normalize()
+            .as_vec3();
+        let dj = (g.face_point(face, i0 as f64 + 0.5, j0 as f64 + 1.5, r) - mid)
+            .normalize()
+            .as_vec3();
         let up = mid.normalize().as_vec3();
         let steps = [((1, 0), di), ((-1, 0), -di), ((0, 1), dj), ((0, -1), -dj)];
         let fwd = forward.reject_from(up).normalize_or(di);
-        let &(ez, zdir) = steps.iter().max_by(|a, b| a.1.dot(fwd).total_cmp(&b.1.dot(fwd))).unwrap();
+        let &(ez, zdir) = steps
+            .iter()
+            .max_by(|a, b| a.1.dot(fwd).total_cmp(&b.1.dot(fwd)))
+            .unwrap();
         // x = y × z: of the two steps across ez, the one that way.
         let want_x = up.cross(zdir);
-        let &(ex, _) = steps.iter().filter(|s| (s.0 .0 != 0) != (ez.0 != 0)).max_by(|a, b| a.1.dot(want_x).total_cmp(&b.1.dot(want_x))).unwrap();
-        Self { face, i0, j0, k0, ex, ez }
+        let &(ex, _) = steps
+            .iter()
+            .filter(|s| (s.0.0 != 0) != (ez.0 != 0))
+            .max_by(|a, b| a.1.dot(want_x).total_cmp(&b.1.dot(want_x)))
+            .unwrap();
+        Self {
+            face,
+            i0,
+            j0,
+            k0,
+            ex,
+            ez,
+        }
     }
 
     /// Grid (i, j) of rocket column (x, z).
     pub fn ij(&self, x: i32, z: i32) -> (i64, i64) {
-        (self.i0 + x as i64 * self.ex.0 + z as i64 * self.ez.0, self.j0 + x as i64 * self.ex.1 + z as i64 * self.ez.1)
+        (
+            self.i0 + x as i64 * self.ex.0 + z as i64 * self.ez.0,
+            self.j0 + x as i64 * self.ex.1 + z as i64 * self.ez.1,
+        )
     }
 
     /// The planet cell of rocket block `p`, if inside the planet's layers.
     pub fn cell(&self, planet: &Planet, p: IVec3) -> Option<CellId> {
         let (i, j) = self.ij(p.x, p.z);
-        planet.grid.cell_on_face(self.face, i, j, self.k0 + p.y as i64)
+        planet
+            .grid
+            .cell_on_face(self.face, i, j, self.k0 + p.y as i64)
     }
 
     /// Rocket coordinates of a planet cell.
@@ -192,7 +249,9 @@ impl Lay {
     pub fn turn(&self, planet: &Planet) -> Mat3 {
         let base = self.base(planet);
         let up = base.normalize();
-        let z = (self.point(planet, Vec3::new(0.5, 0.0, 1.5)) - base).reject_from(up).normalize();
+        let z = (self.point(planet, Vec3::new(0.5, 0.0, 1.5)) - base)
+            .reject_from(up)
+            .normalize();
         Mat3::from_cols(up.cross(z), up, z)
     }
 }
@@ -211,28 +270,47 @@ fn pad_ok(planet: &Planet, lay: &Lay, own: impl Fn(IVec3) -> bool) -> Result<(),
     let (mut holes, mut taken) = (Vec::new(), Vec::new());
     for x in -PAD..=PAD {
         for z in -PAD..=PAD {
-            let under = lay.cell(planet, IVec3::new(x, -1, z)).ok_or(Problem::NoGround)?;
+            let under = lay
+                .cell(planet, IVec3::new(x, -1, z))
+                .ok_or(Problem::NoGround)?;
             if !block::is_solid(planet.get(under)) {
                 holes.push(under);
             }
             let on = IVec3::new(x, 0, z);
-            if let Some(c) = lay.cell(planet, on).filter(|&c| !own(on) && block::is_solid(planet.get(c))) {
+            if let Some(c) = lay
+                .cell(planet, on)
+                .filter(|&c| !own(on) && block::is_solid(planet.get(c)))
+            {
                 taken.push(c);
             }
         }
     }
     if !holes.is_empty() {
-        return Err(Fault { problem: Problem::NotFlat, cells: holes, first: None });
+        return Err(Fault {
+            problem: Problem::NotFlat,
+            cells: holes,
+            first: None,
+        });
     }
     if let Some(&c) = taken.first() {
-        return Err(Fault { problem: Problem::PadTaken, first: Some((planet.get(c), 0)), cells: taken });
+        return Err(Fault {
+            problem: Problem::PadTaken,
+            first: Some((planet.get(c), 0)),
+            cells: taken,
+        });
     }
     Ok(())
 }
 
 /// Gathers the rocket whose helm is in cell `helm`: every block the player placed touching it,
 /// through others (faces, not edges). `facing` (planet-local) is the way it will face: its +z.
-pub fn assemble(planet: &Planet, helm: CellId, facing: Vec3, id: String, name: &str) -> Result<Assembly, Fault> {
+pub fn assemble(
+    planet: &Planet,
+    helm: CellId,
+    facing: Vec3,
+    id: String,
+    name: &str,
+) -> Result<Assembly, Fault> {
     let g = &planet.grid;
     let (face, i, j, k) = g.coords(helm);
     let at_helm = Lay::snapped(planet, face, i as i64, j as i64, k as i64, facing);
@@ -243,7 +321,11 @@ pub fn assemble(planet: &Planet, helm: CellId, facing: Vec3, id: String, name: &
         for s in crate::sphere::Side::ALL {
             let Some(n) = g.neighbor(c, s) else { continue };
             // Never the pad it stands on.
-            if planet.get(n) != block::AIR && !block::is_pad(planet.get(n)) && planet.is_placed(n) && seen.insert(n) {
+            if planet.get(n) != block::AIR
+                && !block::is_pad(planet.get(n))
+                && planet.is_placed(n)
+                && seen.insert(n)
+            {
                 if seen.len() > MAX_BLOCKS {
                     return Err(Problem::TooBig.into());
                 }
@@ -257,17 +339,45 @@ pub fn assemble(planet: &Planet, helm: CellId, facing: Vec3, id: String, name: &
     // in the 3 × 3 around it (its base, not a step or a fin), nearest the middle on a tie.
     let low = local.iter().map(|p| p.y).min().unwrap();
     let bottom: Vec<IVec3> = local.iter().copied().filter(|p| p.y == low).collect();
-    let (lo, hi) = bottom.iter().fold((bottom[0], bottom[0]), |(a, b), &p| (a.min(p), b.max(p)));
+    let (lo, hi) = bottom
+        .iter()
+        .fold((bottom[0], bottom[0]), |(a, b), &p| (a.min(p), b.max(p)));
     let mid = (lo + hi).as_vec3() * 0.5;
-    let around = |c: IVec3| bottom.iter().filter(|p| (p.x - c.x).abs() <= PAD && (p.z - c.z).abs() <= PAD).count();
+    let around = |c: IVec3| {
+        bottom
+            .iter()
+            .filter(|p| (p.x - c.x).abs() <= PAD && (p.z - c.z).abs() <= PAD)
+            .count()
+    };
     let origin = *bottom
         .iter()
-        .min_by(|a, b| around(**b).cmp(&around(**a)).then(a.as_vec3().distance_squared(mid).total_cmp(&b.as_vec3().distance_squared(mid))).then(a.to_array().cmp(&b.to_array())))
+        .min_by(|a, b| {
+            around(**b)
+                .cmp(&around(**a))
+                .then(
+                    a.as_vec3()
+                        .distance_squared(mid)
+                        .total_cmp(&b.as_vec3().distance_squared(mid)),
+                )
+                .then(a.to_array().cmp(&b.to_array()))
+        })
         .unwrap();
     let (i0, j0) = at_helm.ij(origin.x, origin.z);
-    let lay = Lay { i0, j0, k0: at_helm.k0 + low as i64, ..at_helm };
-    let blocks: HashMap<IVec3, Block> = cells.iter().zip(&local).map(|(&c, &p)| (p - origin, planet.get(c))).collect();
-    if blocks.keys().any(|&p| !Station::in_limits(p) || p.y > MAX_Y) {
+    let lay = Lay {
+        i0,
+        j0,
+        k0: at_helm.k0 + low as i64,
+        ..at_helm
+    };
+    let blocks: HashMap<IVec3, Block> = cells
+        .iter()
+        .zip(&local)
+        .map(|(&c, &p)| (p - origin, planet.get(c)))
+        .collect();
+    if blocks
+        .keys()
+        .any(|&p| !Station::in_limits(p) || p.y > MAX_Y)
+    {
         return Err(Problem::TooBig.into());
     }
     if !blocks.values().any(|&b| b == block::ENGINE) {
@@ -288,7 +398,10 @@ pub fn assemble(planet: &Planet, helm: CellId, facing: Vec3, id: String, name: &
             if blocks.contains_key(&p) {
                 continue;
             }
-            if let Some(c) = lay.cell(planet, p).filter(|&c| block::is_solid(planet.get(c))) {
+            if let Some(c) = lay
+                .cell(planet, p)
+                .filter(|&c| block::is_solid(planet.get(c)))
+            {
                 over.push((y, c));
             }
         }
@@ -297,7 +410,11 @@ pub fn assemble(planet: &Planet, helm: CellId, facing: Vec3, id: String, name: &
         over.sort();
         let first = Some((planet.get(over[0].1), over[0].0));
         let cells = over.into_iter().take(MAX_MARKED).map(|(_, c)| c).collect();
-        return Err(Fault { problem: Problem::Blocked, cells, first });
+        return Err(Fault {
+            problem: Problem::Blocked,
+            cells,
+            first,
+        });
     }
     let helm_at = at_helm.local_of(planet, helm) - origin;
     let rocket = Station::rocket(id, name, blocks, helm_at);
@@ -306,7 +423,11 @@ pub fn assemble(planet: &Planet, helm: CellId, facing: Vec3, id: String, name: &
 
 /// Where a rocket's blocks would go to stand at `lay`, or why they cannot: the pad under it, and
 /// every block of it into a cell with nothing solid in it.
-pub fn landing(planet: &Planet, rocket: &Station, lay: &Lay) -> Result<Vec<(CellId, Block)>, Problem> {
+pub fn landing(
+    planet: &Planet,
+    rocket: &Station,
+    lay: &Lay,
+) -> Result<Vec<(CellId, Block)>, Problem> {
     let own: Vec<(IVec3, Block)> = rocket.cells().filter(|&(_, b)| b != block::AIR).collect();
     pad_ok(planet, lay, |p| rocket.get(p) != block::AIR).map_err(|f| f.problem)?;
     own.into_iter()
@@ -323,32 +444,50 @@ pub fn landing(planet: &Planet, rocket: &Station, lay: &Lay) -> Result<Vec<(Cell
 /// The topmost solid layer of a column (grid coordinates on `face`), if any.
 pub fn ground(planet: &Planet, face: usize, i: i64, j: i64) -> Option<i64> {
     let top = planet.grid.layers as i64;
-    (0..top).rev().find(|&k| planet.grid.cell_on_face(face, i, j, k).is_some_and(|c| block::is_solid(planet.get(c))))
+    (0..top).rev().find(|&k| {
+        planet
+            .grid
+            .cell_on_face(face, i, j, k)
+            .is_some_and(|c| block::is_solid(planet.get(c)))
+    })
 }
 
 /// The nearest place around the planet-local point `near` where `rocket` can stand facing
 /// `forward`: how it would lie there. A ready landing pad (within `LANDING_PAD_SEARCH` columns)
 /// first, else flat ground within `PAD_SEARCH`.
 pub fn find_pad(planet: &Planet, rocket: &Station, near: Vec3, forward: Vec3) -> Option<Lay> {
-    find_landing_pad(planet, rocket, near, forward).map(|(lay, _)| lay).or_else(|| find_ground(planet, rocket, near, forward))
+    find_landing_pad(planet, rocket, near, forward)
+        .map(|(lay, _)| lay)
+        .or_else(|| find_ground(planet, rocket, near, forward))
 }
 
 /// The nearest ready landing pad around `near` where `rocket` fits, facing `forward`: how it
 /// would lie there (its middle over the pad's middle), and the pad's side.
-pub fn find_landing_pad(planet: &Planet, rocket: &Station, near: Vec3, forward: Vec3) -> Option<(Lay, i32)> {
+pub fn find_landing_pad(
+    planet: &Planet,
+    rocket: &Station,
+    near: Vec3,
+    forward: Vec3,
+) -> Option<(Lay, i32)> {
     let g = &planet.grid;
     let p = near.as_dvec3();
     let face = g.face_of(p);
     let (a, b) = g.face_coords(face, p);
     let (ci, cj) = (a.floor() as i64, b.floor() as i64);
     let r = LANDING_PAD_SEARCH;
-    let mut spots: Vec<(i64, i64)> = (-r..=r).flat_map(|di| (-r..=r).map(move |dj| (di, dj))).collect();
+    let mut spots: Vec<(i64, i64)> = (-r..=r)
+        .flat_map(|di| (-r..=r).map(move |dj| (di, dj)))
+        .collect();
     spots.sort_by_key(|&(di, dj)| di * di + dj * dj);
     let mut seen: HashSet<CellId> = HashSet::new();
     for (di, dj) in spots {
         let (i, j) = (ci + di, cj + dj);
-        let Some(k) = ground(planet, face, i, j) else { continue };
-        let Some(c) = g.cell_on_face(face, i, j, k) else { continue };
+        let Some(k) = ground(planet, face, i, j) else {
+            continue;
+        };
+        let Some(c) = g.cell_on_face(face, i, j, k) else {
+            continue;
+        };
         if planet.get(c) != block::PAD_READY || seen.contains(&c) {
             continue;
         }
@@ -375,7 +514,9 @@ fn find_ground(planet: &Planet, rocket: &Station, near: Vec3, forward: Vec3) -> 
     let face = g.face_of(p);
     let (a, b) = g.face_coords(face, p);
     let (ci, cj) = (a.floor() as i64, b.floor() as i64);
-    let mut spots: Vec<(i64, i64)> = (-PAD_SEARCH..=PAD_SEARCH).flat_map(|di| (-PAD_SEARCH..=PAD_SEARCH).map(move |dj| (di, dj))).collect();
+    let mut spots: Vec<(i64, i64)> = (-PAD_SEARCH..=PAD_SEARCH)
+        .flat_map(|di| (-PAD_SEARCH..=PAD_SEARCH).map(move |dj| (di, dj)))
+        .collect();
     spots.sort_by_key(|&(di, dj)| di * di + dj * dj);
     spots.into_iter().find_map(|(di, dj)| {
         let (i, j) = (ci + di, cj + dj);
@@ -425,18 +566,30 @@ impl Berth {
 
     /// The turn whose front is nearest `facing` (station coordinates).
     pub fn turns_toward(facing: Vec3) -> u8 {
-        (0..4u8).max_by(|&a, &b| quarter(IVec3::Z, a).as_vec3().dot(facing).total_cmp(&quarter(IVec3::Z, b).as_vec3().dot(facing))).unwrap()
+        (0..4u8)
+            .max_by(|&a, &b| {
+                quarter(IVec3::Z, a)
+                    .as_vec3()
+                    .dot(facing)
+                    .total_cmp(&quarter(IVec3::Z, b).as_vec3().dot(facing))
+            })
+            .unwrap()
     }
 }
 
 /// A ready pad's blocks under the rocket's middle 3 × 3, at `berth`.
 fn on_station_pad(s: &Station, berth: &Berth) -> bool {
-    (-PAD..=PAD).all(|x| (-PAD..=PAD).all(|z| s.get(berth.cell(IVec3::new(x, -1, z))) == block::PAD_READY))
+    (-PAD..=PAD)
+        .all(|x| (-PAD..=PAD).all(|z| s.get(berth.cell(IVec3::new(x, -1, z))) == block::PAD_READY))
 }
 
 /// Where a rocket's blocks would go on station `s` at `berth`, or why they cannot: a ready pad
 /// under its middle, and every block of it into an empty cell within the station's limits.
-pub fn berth_cells(s: &Station, rocket: &Station, berth: &Berth) -> Result<Vec<(IVec3, Block)>, Problem> {
+pub fn berth_cells(
+    s: &Station,
+    rocket: &Station,
+    berth: &Berth,
+) -> Result<Vec<(IVec3, Block)>, Problem> {
     if !on_station_pad(s, berth) {
         return Err(Problem::NoStationPad);
     }
@@ -465,9 +618,20 @@ pub fn find_berth(s: &Station, rocket: &Station, near: Vec3, facing: Vec3) -> Op
         let (x, z) = sq.middle();
         IVec3::new(x, y + 1, z)
     };
-    pads.sort_by(|a, b| at(a).as_vec3().distance_squared(near).total_cmp(&at(b).as_vec3().distance_squared(near)));
+    pads.sort_by(|a, b| {
+        at(a)
+            .as_vec3()
+            .distance_squared(near)
+            .total_cmp(&at(b).as_vec3().distance_squared(near))
+    });
     pads.iter().find_map(|p| {
-        (0..4).map(|k| (first + k) % 4).map(|turns| Berth { origin: at(p), turns }).find(|b| berth_cells(s, rocket, b).is_ok())
+        (0..4)
+            .map(|k| (first + k) % 4)
+            .map(|turns| Berth {
+                origin: at(p),
+                turns,
+            })
+            .find(|b| berth_cells(s, rocket, b).is_ok())
     })
 }
 
@@ -482,10 +646,23 @@ pub struct StationAssembly {
 /// Gathers the rocket whose helm is at `helm` on station `s`: every block touching it, through
 /// others, but the pad it stands on and the station's core. It must stand on a ready pad, with
 /// nothing of the station over it. `facing` (station coordinates) is the way it will face.
-pub fn assemble_on_station(s: &Station, helm: IVec3, facing: Vec3, id: String, name: &str) -> Result<StationAssembly, Problem> {
+pub fn assemble_on_station(
+    s: &Station,
+    helm: IVec3,
+    facing: Vec3,
+    id: String,
+    name: &str,
+) -> Result<StationAssembly, Problem> {
     let mut seen = HashSet::from([helm]);
     let mut queue = VecDeque::from([helm]);
-    let sides = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z];
+    let sides = [
+        IVec3::X,
+        IVec3::NEG_X,
+        IVec3::Y,
+        IVec3::NEG_Y,
+        IVec3::Z,
+        IVec3::NEG_Z,
+    ];
     while let Some(p) = queue.pop_front() {
         for d in sides {
             let n = p + d;
@@ -502,16 +679,38 @@ pub fn assemble_on_station(s: &Station, helm: IVec3, facing: Vec3, id: String, n
     // Its base, as on a planet: the block of its lowest layer with the most of it around.
     let low = cells.iter().map(|p| p.y).min().unwrap();
     let bottom: Vec<IVec3> = cells.iter().copied().filter(|p| p.y == low).collect();
-    let (lo, hi) = bottom.iter().fold((bottom[0], bottom[0]), |(a, b), &p| (a.min(p), b.max(p)));
+    let (lo, hi) = bottom
+        .iter()
+        .fold((bottom[0], bottom[0]), |(a, b), &p| (a.min(p), b.max(p)));
     let mid = (lo + hi).as_vec3() * 0.5;
-    let around = |c: IVec3| bottom.iter().filter(|p| (p.x - c.x).abs() <= PAD && (p.z - c.z).abs() <= PAD).count();
+    let around = |c: IVec3| {
+        bottom
+            .iter()
+            .filter(|p| (p.x - c.x).abs() <= PAD && (p.z - c.z).abs() <= PAD)
+            .count()
+    };
     let origin = *bottom
         .iter()
-        .min_by(|a, b| around(**b).cmp(&around(**a)).then(a.as_vec3().distance_squared(mid).total_cmp(&b.as_vec3().distance_squared(mid))).then(a.to_array().cmp(&b.to_array())))
+        .min_by(|a, b| {
+            around(**b)
+                .cmp(&around(**a))
+                .then(
+                    a.as_vec3()
+                        .distance_squared(mid)
+                        .total_cmp(&b.as_vec3().distance_squared(mid)),
+                )
+                .then(a.to_array().cmp(&b.to_array()))
+        })
         .unwrap();
-    let berth = Berth { origin, turns: Berth::turns_toward(facing) };
+    let berth = Berth {
+        origin,
+        turns: Berth::turns_toward(facing),
+    };
     let blocks: HashMap<IVec3, Block> = cells.iter().map(|&p| (berth.local(p), s.get(p))).collect();
-    if blocks.keys().any(|&p| !Station::in_limits(p) || p.y > MAX_Y) {
+    if blocks
+        .keys()
+        .any(|&p| !Station::in_limits(p) || p.y > MAX_Y)
+    {
         return Err(Problem::TooBig);
     }
     if !blocks.values().any(|&b| b == block::ENGINE) {
@@ -536,7 +735,11 @@ pub fn assemble_on_station(s: &Station, helm: IVec3, facing: Vec3, id: String, n
         }
     }
     let rocket = Station::rocket(id, name, blocks, berth.local(helm));
-    Ok(StationAssembly { rocket, berth, cells })
+    Ok(StationAssembly {
+        rocket,
+        berth,
+        cells,
+    })
 }
 
 /// The rocket `/rocket build` puts up: three engines across on a 3 × 3 skirt, a 5 × 5 cabin with
@@ -555,7 +758,16 @@ pub fn starter(id: String, name: &str) -> Station {
             let ring = x.abs() == 2 || z.abs() == 2;
             let corner = x.abs() == 2 && z.abs() == 2;
             put(x, 1, z, block::HULL);
-            put(x, 5, z, if x == 0 && z == 0 { block::CRYSTAL } else { block::HULL });
+            put(
+                x,
+                5,
+                z,
+                if x == 0 && z == 0 {
+                    block::CRYSTAL
+                } else {
+                    block::HULL
+                },
+            );
             if ring {
                 let door = x == 0 && z == -2;
                 if !door {
@@ -564,7 +776,16 @@ pub fn starter(id: String, name: &str) -> Station {
                 }
                 // Windows all round at eye height, but at the corners and beside the door.
                 if !door {
-                    put(x, 3, z, if corner || (z == -2 && x.abs() == 1) { block::HULL } else { block::GLASS });
+                    put(
+                        x,
+                        3,
+                        z,
+                        if corner || (z == -2 && x.abs() == 1) {
+                            block::HULL
+                        } else {
+                            block::GLASS
+                        },
+                    );
                 }
             }
         }
@@ -593,13 +814,20 @@ pub fn starter(id: String, name: &str) -> Station {
 
 /// A rocket's block count and engines, for messages.
 pub fn summary(rocket: &Station) -> (usize, usize) {
-    rocket.cells().fold((0, 0), |(n, e), (_, b)| (n + (b != block::AIR) as usize, e + (b == block::ENGINE) as usize))
+    rocket.cells().fold((0, 0), |(n, e), (_, b)| {
+        (
+            n + (b != block::AIR) as usize,
+            e + (b == block::ENGINE) as usize,
+        )
+    })
 }
 
 /// Rocket (local) → world turn, from the world directions of its up and its front.
 pub fn turn_from(up: Vec3, forward: Vec3) -> glam::Quat {
     let up = up.normalize();
-    let z = forward.reject_from(up).normalize_or(up.any_orthonormal_vector());
+    let z = forward
+        .reject_from(up)
+        .normalize_or(up.any_orthonormal_vector());
     glam::Quat::from_mat3(&Mat3::from_cols(up.cross(z), up, z)).normalize()
 }
 
@@ -622,7 +850,11 @@ pub fn nose_toward(up: Vec3, vel: Vec3, in_air: bool, on_ground: bool, before: V
     let speed = vel.length();
     let w = ((speed - NOSE_SLOW) / (NOSE_FULL - NOSE_SLOW)).clamp(0.0, 1.0);
     if !in_air {
-        return if w > 0.0 { before.lerp(vel / speed, w).normalize_or(before) } else { before };
+        return if w > 0.0 {
+            before.lerp(vel / speed, w).normalize_or(before)
+        } else {
+            before
+        };
     }
     if on_ground {
         return up;
@@ -694,7 +926,10 @@ mod tests {
         let (f, i, j, k) = spot(&p);
         let lay = Lay::snapped(&p, f, i, j, k, Vec3::X);
         let kit = starter("00000001".into(), "");
-        assert!(landing(&p, &kit, &lay).is_ok(), "the kit fits on flat ground");
+        assert!(
+            landing(&p, &kit, &lay).is_ok(),
+            "the kit fits on flat ground"
+        );
         build(&mut p, &lay, &kit);
         let helm = lay.cell(&p, kit.core).unwrap();
         assert_eq!(p.get(helm), block::HELM);
@@ -741,20 +976,32 @@ mod tests {
                 p.set(lay.cell(&p, IVec3::new(x, 0, z)).unwrap(), block::HULL);
             }
         }
-        assert_eq!(assemble(&p, helm(&p), facing, "a".into(), "").err().map(|f| f.problem), Some(Problem::NoEngine));
+        assert_eq!(
+            assemble(&p, helm(&p), facing, "a".into(), "")
+                .err()
+                .map(|f| f.problem),
+            Some(Problem::NoEngine)
+        );
 
         // A hole in the pad.
         let mut p = flat_planet();
         build(&mut p, &lay, &kit);
         p.set(lay.cell(&p, IVec3::new(1, -1, 1)).unwrap(), block::AIR);
-        assert_eq!(assemble(&p, helm(&p), facing, "a".into(), "").err().map(|f| f.problem), Some(Problem::NotFlat));
+        assert_eq!(
+            assemble(&p, helm(&p), facing, "a".into(), "")
+                .err()
+                .map(|f| f.problem),
+            Some(Problem::NotFlat)
+        );
 
         // A roof over it (not part of it: not touching).
         let mut p = flat_planet();
         build(&mut p, &lay, &kit);
         let roof = lay.cell(&p, IVec3::new(0, 12, 0)).unwrap();
         p.set(roof, block::STONE);
-        let f = assemble(&p, helm(&p), facing, "a".into(), "").err().unwrap();
+        let f = assemble(&p, helm(&p), facing, "a".into(), "")
+            .err()
+            .unwrap();
         assert_eq!(f.problem, Problem::Blocked);
         // It says what and where, and marks it.
         assert_eq!(f.cells, vec![roof]);
@@ -830,7 +1077,10 @@ mod tests {
             }
         }
         assert_eq!(last, Some(crate::pad::Shape::Square { side: 5 }));
-        assert_eq!(p.get(lay.cell(&p, IVec3::new(2, 0, 2)).unwrap()), block::PAD_READY);
+        assert_eq!(
+            p.get(lay.cell(&p, IVec3::new(2, 0, 2)).unwrap()),
+            block::PAD_READY
+        );
         // A landing near goes to its middle, though flat ground is nearer.
         let kit = starter("r".into(), "");
         let near = Lay::snapped(&p, f, i, j, k, Vec3::Z).base(&p);
@@ -889,9 +1139,22 @@ mod tests {
         for (q, k) in kit.cells().filter(|&(_, k)| k != block::AIR) {
             bare.set(q + IVec3::new(20, 1, 20), k);
         }
-        assert_eq!(assemble_on_station(&bare, kit.core + IVec3::new(20, 1, 20), Vec3::Z, "r".into(), "").err(), Some(Problem::NoStationPad));
+        assert_eq!(
+            assemble_on_station(
+                &bare,
+                kit.core + IVec3::new(20, 1, 20),
+                Vec3::Z,
+                "r".into(),
+                ""
+            )
+            .err(),
+            Some(Problem::NoStationPad)
+        );
         // A roof over it: no.
         st.set(helm + IVec3::new(0, 20, 0), block::STONE);
-        assert_eq!(assemble_on_station(&st, helm, Vec3::NEG_X, "r".into(), "").err(), Some(Problem::Blocked));
+        assert_eq!(
+            assemble_on_station(&st, helm, Vec3::NEG_X, "r".into(), "").err(),
+            Some(Problem::Blocked)
+        );
     }
 }

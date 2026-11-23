@@ -7,7 +7,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{Image, ImageSampler};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use orbit_core::block::{self, tile, Shape};
+use orbit_core::block::{self, Shape, tile};
 use orbit_core::rng::mix;
 use std::path::PathBuf;
 
@@ -31,13 +31,21 @@ pub struct Atlas(pub Handle<Image>);
 #[derive(Resource, Clone)]
 pub struct Icons(pub Handle<Image>);
 
+/// Which pixels of each non-block item's picture are opaque (16 × 16, rows from the top), for
+/// drawing it as a thin slab in the hand.
+#[derive(Resource, Clone)]
+pub struct Sprites(pub Vec<[bool; 256]>);
+
 pub const ICON: usize = 32;
 pub const ICON_COLUMNS: usize = 16;
 
 impl Icons {
     /// Where an item's icon is in the image, pixels.
     pub fn rect(item: block::Block) -> Rect {
-        let (x, y) = ((item as usize % ICON_COLUMNS * ICON) as f32, (item as usize / ICON_COLUMNS * ICON) as f32);
+        let (x, y) = (
+            (item as usize % ICON_COLUMNS * ICON) as f32,
+            (item as usize / ICON_COLUMNS * ICON) as f32,
+        );
         Rect::new(x, y, x + ICON as f32, y + ICON as f32)
     }
 }
@@ -58,12 +66,17 @@ pub fn folder() -> PathBuf {
 
 /// Writes the painted tiles as PNGs, for editing.
 pub fn export() -> std::io::Result<PathBuf> {
-    let dir = std::env::var("ORBIT_TEXTURES").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("textures"));
+    let dir = std::env::var("ORBIT_TEXTURES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("textures"));
     std::fs::create_dir_all(&dir)?;
     for (t, name) in tile::NAMES.iter().enumerate() {
         let px = paint(t as u16);
-        let img = image::RgbaImage::from_fn(SIZE as u32, SIZE as u32, |x, y| image::Rgba(px[y as usize * SIZE + x as usize]));
-        img.save(dir.join(format!("{name}.png"))).map_err(std::io::Error::other)?;
+        let img = image::RgbaImage::from_fn(SIZE as u32, SIZE as u32, |x, y| {
+            image::Rgba(px[y as usize * SIZE + x as usize])
+        });
+        img.save(dir.join(format!("{name}.png")))
+            .map_err(std::io::Error::other)?;
     }
     Ok(dir)
 }
@@ -74,18 +87,31 @@ fn build_atlas(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut loaded: Vec<Option<image::RgbaImage>> = Vec::new();
     for name in tile::NAMES {
         let path = dir.join(format!("{name}.png"));
-        let img = path.is_file().then(|| image::open(&path)).and_then(|r| match r {
-            Ok(i) => Some(i.to_rgba8()),
-            Err(e) => {
-                warn!("texture {}: {e}", path.display());
-                None
-            }
-        });
+        let img = path
+            .is_file()
+            .then(|| image::open(&path))
+            .and_then(|r| match r {
+                Ok(i) => Some(i.to_rgba8()),
+                Err(e) => {
+                    warn!("texture {}: {e}", path.display());
+                    None
+                }
+            });
         loaded.push(img);
     }
     let found = loaded.iter().flatten().count();
-    let size = loaded.iter().flatten().map(|i| i.width().max(i.height()) as usize).max().unwrap_or(SIZE).max(SIZE);
-    info!("textures: {found} of {} from {}, the rest painted; tiles {size}px", tile::COUNT, dir.display());
+    let size = loaded
+        .iter()
+        .flatten()
+        .map(|i| i.width().max(i.height()) as usize)
+        .max()
+        .unwrap_or(SIZE)
+        .max(SIZE);
+    info!(
+        "textures: {found} of {} from {}, the rest painted; tiles {size}px",
+        tile::COUNT,
+        dir.display()
+    );
 
     let (w, h) = (tile::COLUMNS * size, tile::ROWS * size);
     let mut data = vec![0u8; w * h * 4];
@@ -96,7 +122,13 @@ fn build_atlas(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             for x in 0..size {
                 // Nearest-neighbor scaling either way keeps the pixel-art look.
                 let px = match &loaded[t] {
-                    Some(img) => img.get_pixel((x * img.width() as usize / size) as u32, (y * img.height() as usize / size) as u32).0,
+                    Some(img) => {
+                        img.get_pixel(
+                            (x * img.width() as usize / size) as u32,
+                            (y * img.height() as usize / size) as u32,
+                        )
+                        .0
+                    }
                     None => painted[(y * SIZE / size) * SIZE + x * SIZE / size],
                 };
                 let i = ((oy + y) * w + ox + x) * 4;
@@ -104,9 +136,27 @@ fn build_atlas(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             }
         }
     }
+    let sprites: Vec<[bool; 256]> = (0..orbit_core::items::COUNT)
+        .map(|i| {
+            let t = tile::ITEM_BASE as usize + i;
+            let (ox, oy) = ((t % tile::COLUMNS) * size, (t / tile::COLUMNS) * size);
+            std::array::from_fn(|k| {
+                let (x, y) = (
+                    (k % 16) * size / 16 + size / 32,
+                    (k / 16) * size / 16 + size / 32,
+                );
+                data[((oy + y) * w + ox + x) * 4 + 3] > 8
+            })
+        })
+        .collect();
+    commands.insert_resource(Sprites(sprites));
     let icons = icons(&data, w, size);
     let mut image = Image::new(
-        Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+        Extent3d {
+            width: w as u32,
+            height: h as u32,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
@@ -119,18 +169,27 @@ fn build_atlas(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
 /// Draws every item's icon from the atlas's pixels (`data`, `w` wide, tiles `size` px).
 fn icons(data: &[u8], w: usize, size: usize) -> Image {
-    let rows = block::COUNT.div_ceil(ICON_COLUMNS);
+    let rows = 256 / ICON_COLUMNS; // an icon for every id there can be
     let (iw, ih) = (ICON_COLUMNS * ICON, rows * ICON);
     let mut out = vec![0u8; iw * ih * 4];
     // A tile's texel at (u, v) in 0..1.
     let texel = |t: u16, u: f32, v: f32| -> Rgba {
-        let (ox, oy) = ((t as usize % tile::COLUMNS) * size, (t as usize / tile::COLUMNS) * size);
-        let (x, y) = (((u * size as f32) as usize).min(size - 1), ((v * size as f32) as usize).min(size - 1));
+        let (ox, oy) = (
+            (t as usize % tile::COLUMNS) * size,
+            (t as usize / tile::COLUMNS) * size,
+        );
+        let (x, y) = (
+            ((u * size as f32) as usize).min(size - 1),
+            ((v * size as f32) as usize).min(size - 1),
+        );
         let i = ((oy + y) * w + ox + x) * 4;
         [data[i], data[i + 1], data[i + 2], data[i + 3]]
     };
-    for &item in &block::ITEMS {
-        let (ox, oy) = (item as usize % ICON_COLUMNS * ICON, item as usize / ICON_COLUMNS * ICON);
+    for &item in orbit_core::items::creative() {
+        let (ox, oy) = (
+            item as usize % ICON_COLUMNS * ICON,
+            item as usize / ICON_COLUMNS * ICON,
+        );
         let mut put = |x: i32, y: i32, c: Rgba| {
             if c[3] > 0 && (0..ICON as i32).contains(&x) && (0..ICON as i32).contains(&y) {
                 let i = ((oy + y as usize) * iw + ox + x as usize) * 4;
@@ -142,16 +201,21 @@ fn icons(data: &[u8], w: usize, size: usize) -> Image {
             Shape::Cube => {
                 // Three faces, splatted texel by texel (oversampled so no pixel is missed).
                 // Screen point of a corner (x, y, z) of the unit cube.
-                let at = |x: f32, y: f32, z: f32| (16.0 + (x - z) * 13.0, 2.0 + (x + z) * 7.5 + (1.0 - y) * 14.5);
+                let at = |x: f32, y: f32, z: f32| {
+                    (
+                        16.0 + (x - z) * 13.0,
+                        2.0 + (x + z) * 7.5 + (1.0 - y) * 14.5,
+                    )
+                };
                 let n = size * 3;
                 for face in 0..3 {
                     for a in 0..n {
                         for b in 0..n {
                             let (u, v) = ((a as f32 + 0.5) / n as f32, (b as f32 + 0.5) / n as f32);
                             let ((sx, sy), t, k) = match face {
-                                0 => (at(u, 1.0 - v, 1.0), tiles[1], 0.8),  // left: z = 1
+                                0 => (at(u, 1.0 - v, 1.0), tiles[1], 0.8), // left: z = 1
                                 1 => (at(1.0, 1.0 - v, 1.0 - u), tiles[1], 0.62), // right: x = 1
-                                _ => (at(u, 1.0, v), tiles[0], 1.0),        // top
+                                _ => (at(u, 1.0, v), tiles[0], 1.0),       // top
                             };
                             put(sx as i32, sy as i32, shade(texel(t, u, v), k));
                         }
@@ -162,7 +226,11 @@ fn icons(data: &[u8], w: usize, size: usize) -> Image {
                 // The door standing: its top half over its bottom half.
                 for y in 0..ICON {
                     for x in 8..24 {
-                        let (t, v) = if y < 16 { (tile::DOOR_TOP, y as f32 / 16.0) } else { (tile::DOOR_BOTTOM, (y - 16) as f32 / 16.0) };
+                        let (t, v) = if y < 16 {
+                            (tile::DOOR_TOP, y as f32 / 16.0)
+                        } else {
+                            (tile::DOOR_BOTTOM, (y - 16) as f32 / 16.0)
+                        };
                         put(x as i32, y as i32, texel(t, (x - 8) as f32 / 16.0, v));
                     }
                 }
@@ -172,10 +240,19 @@ fn icons(data: &[u8], w: usize, size: usize) -> Image {
                 for y in 2..32 {
                     for x in 0..32 {
                         let post = (6..11).contains(&x) || (21..26).contains(&x);
-                        let rail = (11..21).contains(&x) && ((9..13).contains(&y) || (19..23).contains(&y));
+                        let rail = (11..21).contains(&x)
+                            && ((9..13).contains(&y) || (19..23).contains(&y));
                         if post || rail {
-                            let k = if post && (x == 6 || x == 21) { 0.8 } else { 1.0 };
-                            put(x, y, shade(texel(tile::PLANKS, x as f32 / 32.0, y as f32 / 32.0), k));
+                            let k = if post && (x == 6 || x == 21) {
+                                0.8
+                            } else {
+                                1.0
+                            };
+                            put(
+                                x,
+                                y,
+                                shade(texel(tile::PLANKS, x as f32 / 32.0, y as f32 / 32.0), k),
+                            );
                         }
                     }
                 }
@@ -184,14 +261,22 @@ fn icons(data: &[u8], w: usize, size: usize) -> Image {
                 // Flat: the tile, twice as big.
                 for y in 0..ICON {
                     for x in 0..ICON {
-                        put(x as i32, y as i32, texel(tiles[1], x as f32 / ICON as f32, y as f32 / ICON as f32));
+                        put(
+                            x as i32,
+                            y as i32,
+                            texel(tiles[1], x as f32 / ICON as f32, y as f32 / ICON as f32),
+                        );
                     }
                 }
             }
         }
     }
     let mut image = Image::new(
-        Extent3d { width: iw as u32, height: ih as u32, depth_or_array_layers: 1 },
+        Extent3d {
+            width: iw as u32,
+            height: ih as u32,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         out,
         TextureFormat::Rgba8UnormSrgb,
@@ -220,7 +305,12 @@ fn rgb(r: u8, g: u8, b: u8) -> Rgba {
 
 /// Scales a color's brightness.
 fn shade(c: Rgba, k: f32) -> Rgba {
-    [(c[0] as f32 * k).clamp(0.0, 255.0) as u8, (c[1] as f32 * k).clamp(0.0, 255.0) as u8, (c[2] as f32 * k).clamp(0.0, 255.0) as u8, c[3]]
+    [
+        (c[0] as f32 * k).clamp(0.0, 255.0) as u8,
+        (c[1] as f32 * k).clamp(0.0, 255.0) as u8,
+        (c[2] as f32 * k).clamp(0.0, 255.0) as u8,
+        c[3],
+    ]
 }
 
 const CLEAR: Rgba = [0, 0, 0, 0];
@@ -279,7 +369,10 @@ fn rings(rng: &mut Px, wood: Rgba, bark: Rgba) -> [Rgba; 256] {
         if r > 6.6 {
             shade(bark, 0.9 + rng.f() * 0.2)
         } else {
-            shade(wood, if (r as i32) % 2 == 0 { 1.0 } else { 0.86 } * (0.96 + rng.f() * 0.08))
+            shade(
+                wood,
+                if (r as i32) % 2 == 0 { 1.0 } else { 0.86 } * (0.96 + rng.f() * 0.08),
+            )
         }
     })
 }
@@ -314,8 +407,15 @@ fn flower(rng: &mut Px, petal: Rgba, heart: Rgba) -> [Rgba; 256] {
 
 /// Smooth noise that tiles: a few waves whose periods divide the tile, in -1..1.
 fn waves(x: usize, y: usize, terms: &[(f32, f32, f32)]) -> f32 {
-    let (x, y) = (x as f32 / SIZE as f32 * std::f32::consts::TAU, y as f32 / SIZE as f32 * std::f32::consts::TAU);
-    terms.iter().map(|&(kx, ky, ph)| (kx * x + ky * y + ph).sin()).sum::<f32>() / terms.len() as f32
+    let (x, y) = (
+        x as f32 / SIZE as f32 * std::f32::consts::TAU,
+        y as f32 / SIZE as f32 * std::f32::consts::TAU,
+    );
+    terms
+        .iter()
+        .map(|&(kx, ky, ph)| (kx * x + ky * y + ph).sin())
+        .sum::<f32>()
+        / terms.len() as f32
 }
 
 /// Paints one tile.
@@ -355,19 +455,42 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             let (x, y) = (i % SIZE, i / SIZE);
             let board = y / 4;
             let seam = (board * 7 + 3) % 16;
-            let base = shade(rgb(162, 130, 78), 0.92 + ((mix(board as u64 + 99) % 100) as f32) * 0.0016);
-            if y % 4 == 3 || x == seam { shade(base, 0.7) } else { shade(base, 0.95 + rng.f() * 0.1) }
+            let base = shade(
+                rgb(162, 130, 78),
+                0.92 + ((mix(board as u64 + 99) % 100) as f32) * 0.0016,
+            );
+            if y % 4 == 3 || x == seam {
+                shade(base, 0.7)
+            } else {
+                shade(base, 0.95 + rng.f() * 0.1)
+            }
         }),
         tile::CRYSTAL => std::array::from_fn(|i| {
             let (x, y) = (i % SIZE, i / SIZE);
             let facet = (x + y) % 8 < 2 || (x + 16 - y) % 11 == 0;
-            shade(rgb(120, 215, 250), if facet { 1.25 } else { 0.9 + rng.f() * 0.1 })
+            shade(
+                rgb(120, 215, 250),
+                if facet { 1.25 } else { 0.9 + rng.f() * 0.1 },
+            )
         }),
-        tile::BASALT => std::array::from_fn(|i| shade(rgb(58, 55, 66), if i % SIZE % 4 == 0 { 0.75 } else { 0.95 + rng.f() * 0.12 })),
+        tile::BASALT => std::array::from_fn(|i| {
+            shade(
+                rgb(58, 55, 66),
+                if i % SIZE % 4 == 0 {
+                    0.75
+                } else {
+                    0.95 + rng.f() * 0.12
+                },
+            )
+        }),
         tile::BIRCH_LOG => std::array::from_fn(|i| {
             let (x, y) = (i % SIZE, i / SIZE);
             let mark = (mix(y as u64 * 31 + 5) % 5 == 0) && ((x + y * 3) % 7 < 3);
-            if mark { rgb(40, 40, 38) } else { shade(rgb(218, 216, 208), 0.94 + rng.f() * 0.08) }
+            if mark {
+                rgb(40, 40, 38)
+            } else {
+                shade(rgb(218, 216, 208), 0.94 + rng.f() * 0.08)
+            }
         }),
         tile::BIRCH_LOG_TOP => rings(rng, rgb(200, 180, 130), rgb(218, 216, 208)),
         tile::BIRCH_LEAVES => leaves(rng, rgb(112, 160, 62)),
@@ -376,29 +499,74 @@ pub fn paint(t: u16) -> [Rgba; 256] {
         tile::CACTUS_SIDE => std::array::from_fn(|i| {
             let (x, y) = (i % SIZE, i / SIZE);
             let c = rgb(84, 140, 60);
-            if x % 4 == 0 { shade(c, 0.72) } else if x % 4 == 2 && y % 4 == 1 { rgb(220, 220, 180) } else { shade(c, 0.95 + rng.f() * 0.1) }
+            if x % 4 == 0 {
+                shade(c, 0.72)
+            } else if x % 4 == 2 && y % 4 == 1 {
+                rgb(220, 220, 180)
+            } else {
+                shade(c, 0.95 + rng.f() * 0.1)
+            }
         }),
         tile::CACTUS_TOP => rings(rng, rgb(110, 170, 80), rgb(84, 140, 60)),
-        tile::SANDSTONE => std::array::from_fn(|i| shade(rgb(216, 200, 150), if (i / SIZE) % 5 == 4 { 0.86 } else { 0.97 + rng.f() * 0.06 })),
+        tile::SANDSTONE => std::array::from_fn(|i| {
+            shade(
+                rgb(216, 200, 150),
+                if (i / SIZE) % 5 == 4 {
+                    0.86
+                } else {
+                    0.97 + rng.f() * 0.06
+                },
+            )
+        }),
         tile::SANDSTONE_TOP => noisy(rng, rgb(222, 206, 158), 0.04),
         tile::DEEPSLATE => deepslate(rng),
         tile::GRAVEL => std::array::from_fn(|_| {
-            let c = [rgb(130, 124, 122), rgb(100, 96, 96), rgb(150, 140, 132), rgb(115, 105, 98)][(rng.f() * 4.0) as usize];
+            let c = [
+                rgb(130, 124, 122),
+                rgb(100, 96, 96),
+                rgb(150, 140, 132),
+                rgb(115, 105, 98),
+            ][(rng.f() * 4.0) as usize];
             shade(c, 0.9 + rng.f() * 0.2)
         }),
         tile::COBBLESTONE => std::array::from_fn(|i| {
             // Stones: the nearest of a few fixed points; mortar where two are about as near.
             let (x, y) = ((i % SIZE) as f32, (i / SIZE) as f32);
-            let pts = [(2.0, 2.0), (9.0, 1.0), (14.0, 5.0), (5.0, 7.0), (11.0, 9.0), (2.0, 12.0), (8.0, 14.0), (14.0, 14.0)];
-            let mut d: Vec<f32> = pts.iter().map(|&(px, py): &(f32, f32)| ((x - px).powi(2) + (y - py).powi(2)).sqrt()).collect();
+            let pts = [
+                (2.0, 2.0),
+                (9.0, 1.0),
+                (14.0, 5.0),
+                (5.0, 7.0),
+                (11.0, 9.0),
+                (2.0, 12.0),
+                (8.0, 14.0),
+                (14.0, 14.0),
+            ];
+            let mut d: Vec<f32> = pts
+                .iter()
+                .map(|&(px, py): &(f32, f32)| ((x - px).powi(2) + (y - py).powi(2)).sqrt())
+                .collect();
             d.sort_by(|a, b| a.total_cmp(b));
-            if d[1] - d[0] < 1.1 { rgb(70, 70, 72) } else { shade(rgb(128, 128, 128), 0.85 + rng.f() * 0.25) }
+            if d[1] - d[0] < 1.1 {
+                rgb(70, 70, 72)
+            } else {
+                shade(rgb(128, 128, 128), 0.85 + rng.f() * 0.25)
+            }
         }),
         tile::BEDROCK => std::array::from_fn(|_| shade(rgb(85, 85, 85), 0.35 + rng.f() * 0.9)),
-        t if (tile::ORE..tile::ORE + 6).contains(&t) || (tile::DEEP_ORE..tile::DEEP_ORE + 6).contains(&t) => {
+        t if (tile::ORE..tile::ORE + 6).contains(&t)
+            || (tile::DEEP_ORE..tile::DEEP_ORE + 6).contains(&t) =>
+        {
             let deep = t >= tile::DEEP_ORE;
             let kind = (t - if deep { tile::DEEP_ORE } else { tile::ORE }) as usize;
-            let color = [rgb(30, 30, 32), rgb(200, 112, 72), rgb(216, 175, 145), rgb(250, 214, 60), rgb(220, 24, 20), rgb(92, 236, 226)][kind];
+            let color = [
+                rgb(30, 30, 32),
+                rgb(200, 112, 72),
+                rgb(216, 175, 145),
+                rgb(250, 214, 60),
+                rgb(220, 24, 20),
+                rgb(92, 236, 226),
+            ][kind];
             let mut px = if deep { deepslate(rng) } else { stone(rng) };
             clusters(&mut px, rng, color, 5, 4);
             px
@@ -448,7 +616,11 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             let (x, y) = (i % SIZE, i / SIZE);
             let edge = x == 0 || y == 0 || x == SIZE - 1 || y == SIZE - 1;
             let base = rgb(158, 158, 160);
-            if edge { shade(base, 0.82) } else { shade(base, 0.97 + rng.f() * 0.05) }
+            if edge {
+                shade(base, 0.82)
+            } else {
+                shade(base, 0.97 + rng.f() * 0.05)
+            }
         }),
         tile::STATION_CORE | tile::STATION_CORE_TOP => {
             // Steel casing, glass panes, and a glowing blue heart (an ender pearl's) in the middle.
@@ -457,7 +629,11 @@ pub fn paint(t: u16) -> [Rgba; 256] {
                 let (x, y) = ((i % SIZE) as i32, (i / SIZE) as i32);
                 let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
                 let d = (dx * dx + dy * dy).sqrt();
-                let frame = x == 0 || y == 0 || x == 15 || y == 15 || (!top && (x == 5 || x == 10) && (y < 5 || y > 10));
+                let frame = x == 0
+                    || y == 0
+                    || x == 15
+                    || y == 15
+                    || (!top && (x == 5 || x == 10) && (y < 5 || y > 10));
                 if frame {
                     shade(rgb(196, 200, 206), 0.8 + rng.f() * 0.1)
                 } else if d < 2.6 {
@@ -503,7 +679,11 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             let (x, y) = (i % SIZE, i / SIZE);
             let base = rgb(92, 94, 102);
             if y <= 1 {
-                if (x / 2) % 2 == 0 { rgb(232, 120, 40) } else { rgb(40, 40, 44) }
+                if (x / 2) % 2 == 0 {
+                    rgb(232, 120, 40)
+                } else {
+                    rgb(40, 40, 44)
+                }
             } else if x % 4 == 0 {
                 shade(base, 0.7)
             } else {
@@ -533,7 +713,13 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             if frame {
                 rgb(200, 204, 212)
             } else if (2..=9).contains(&y) && (2..=13).contains(&x) {
-                if ring { rgb(110, 240, 150) } else if x == 8 && y == 5 { rgb(255, 220, 120) } else { rgb(18, 30, 44) }
+                if ring {
+                    rgb(110, 240, 150)
+                } else if x == 8 && y == 5 {
+                    rgb(255, 220, 120)
+                } else {
+                    rgb(18, 30, 44)
+                }
             } else if y == 12 && x % 3 == 1 && (2..=13).contains(&x) {
                 [rgb(230, 70, 60), rgb(250, 200, 60), rgb(80, 200, 255)][(x / 3) % 3]
             } else {
@@ -582,7 +768,9 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             std::array::from_fn(|i| {
                 let (x, y) = (i % SIZE, i / SIZE);
                 let rim = x < 2 || y < 2 || x >= SIZE - 2 || y >= SIZE - 2;
-                let lamp = rim && (x % 5 == 2 || y % 5 == 2) && (x < 2 || x >= SIZE - 2) != (y < 2 || y >= SIZE - 2);
+                let lamp = rim
+                    && (x % 5 == 2 || y % 5 == 2)
+                    && (x < 2 || x >= SIZE - 2) != (y < 2 || y >= SIZE - 2);
                 if rim && ready && lamp {
                     rgb(170, 255, 230)
                 } else if rim {
@@ -610,7 +798,8 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             // Steel tread plate: raised diamonds on dark steel, a seam round the block.
             let (x, y) = (i % SIZE, i / SIZE);
             let seam = x == 0 || y == 0;
-            let diamond = ((x + y) % 4 == 1 && (x / 2 + y / 2) % 2 == 0) || ((x + SIZE - y) % 4 == 3 && (x / 2 + y / 2) % 2 == 1);
+            let diamond = ((x + y) % 4 == 1 && (x / 2 + y / 2) % 2 == 0)
+                || ((x + SIZE - y) % 4 == 3 && (x / 2 + y / 2) % 2 == 1);
             let base = rgb(88, 92, 100);
             if seam {
                 shade(base, 0.62)
@@ -633,7 +822,11 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             // Concrete footing under a steel lip.
             let (x, y) = (i % SIZE, i / SIZE);
             if y < 3 {
-                if y == 2 { rgb(60, 62, 68) } else { shade(rgb(108, 112, 120), 0.95 + rng.f() * 0.08) }
+                if y == 2 {
+                    rgb(60, 62, 68)
+                } else {
+                    shade(rgb(108, 112, 120), 0.95 + rng.f() * 0.08)
+                }
             } else if x % 8 == 0 && y > 4 {
                 shade(rgb(120, 120, 118), 0.8)
             } else {
@@ -643,22 +836,48 @@ pub fn paint(t: u16) -> [Rgba; 256] {
         tile::WATER => std::array::from_fn(|i| {
             // Light ripples on blue; the liquid shader tints it by depth and adds the sky's shine.
             let (x, y) = (i % SIZE, i / SIZE);
-            let w = waves(x, y, &[(1.0, 2.0, 0.3), (2.0, -1.0, 1.7), (3.0, 1.0, 4.1), (-1.0, 3.0, 2.2)]);
+            let w = waves(
+                x,
+                y,
+                &[
+                    (1.0, 2.0, 0.3),
+                    (2.0, -1.0, 1.7),
+                    (3.0, 1.0, 4.1),
+                    (-1.0, 3.0, 2.2),
+                ],
+            );
             let crest = (w * 2.2).clamp(-1.0, 1.0);
             let k = 0.86 + crest * 0.12 + (rng.f() - 0.5) * 0.03;
-            if crest > 0.72 { shade(rgb(214, 236, 250), 0.98 + rng.f() * 0.04) } else { shade(rgb(150, 190, 232), k) }
+            if crest > 0.72 {
+                shade(rgb(214, 236, 250), 0.98 + rng.f() * 0.04)
+            } else {
+                shade(rgb(150, 190, 232), k)
+            }
         }),
         tile::LAVA => std::array::from_fn(|i| {
             // Molten orange with bright yellow veins and dark cooling crust.
             let (x, y) = (i % SIZE, i / SIZE);
-            let w = waves(x, y, &[(1.0, 1.0, 0.0), (2.0, -1.0, 2.0), (-1.0, 2.0, 4.0), (3.0, 2.0, 1.0)]);
+            let w = waves(
+                x,
+                y,
+                &[
+                    (1.0, 1.0, 0.0),
+                    (2.0, -1.0, 2.0),
+                    (-1.0, 2.0, 4.0),
+                    (3.0, 2.0, 1.0),
+                ],
+            );
             let v = waves(x, y, &[(2.0, 3.0, 0.7), (-3.0, 1.0, 3.3)]);
             if w.abs() < 0.09 {
                 shade(rgb(255, 236, 120), 0.96 + rng.f() * 0.04)
             } else if v > 0.62 {
                 shade(rgb(120, 30, 8), 0.85 + rng.f() * 0.2)
             } else {
-                let c = if w > 0.0 { rgb(244, 120, 24) } else { rgb(214, 70, 14) };
+                let c = if w > 0.0 {
+                    rgb(244, 120, 24)
+                } else {
+                    rgb(214, 70, 14)
+                };
                 shade(c, 0.9 + rng.f() * 0.14)
             }
         }),
@@ -678,14 +897,25 @@ pub fn paint(t: u16) -> [Rgba; 256] {
             // Pale blue with white cracks.
             let (x, y) = (i % SIZE, i / SIZE);
             let crack = (x * 3 + y * 5) % 17 == 0 || (x * 7 + 16 - y) % 23 == 0;
-            if crack { rgb(236, 246, 255) } else { shade(rgb(158, 200, 240), 0.95 + rng.f() * 0.08) }
+            if crack {
+                rgb(236, 246, 255)
+            } else {
+                shade(rgb(158, 200, 240), 0.95 + rng.f() * 0.08)
+            }
         }),
         tile::LADDER => std::array::from_fn(|i| {
             // Two rails and a rung every four pixels; the rest see-through.
             let (x, y) = (i % SIZE, i / SIZE);
             let wood = rgb(150, 112, 62);
             if x == 2 || x == 3 || x == 12 || x == 13 {
-                shade(wood, if x == 2 || x == 12 { 0.78 } else { 0.95 + rng.f() * 0.08 })
+                shade(
+                    wood,
+                    if x == 2 || x == 12 {
+                        0.78
+                    } else {
+                        0.95 + rng.f() * 0.08
+                    },
+                )
             } else if (4..12).contains(&x) && y % 4 == 2 {
                 shade(wood, 0.92 + rng.f() * 0.12)
             } else if (4..12).contains(&x) && y % 4 == 3 {
@@ -701,7 +931,8 @@ pub fn paint(t: u16) -> [Rgba; 256] {
                 let (x, y) = (i % SIZE, i / SIZE);
                 let wood = rgb(166, 126, 72);
                 let frame = x <= 1 || x >= SIZE - 2 || (top && y <= 1) || (!top && y >= SIZE - 2);
-                let window = top && (3..=12).contains(&x) && (3..=11).contains(&y) && x != 7 && x != 8;
+                let window =
+                    top && (3..=12).contains(&x) && (3..=11).contains(&y) && x != 7 && x != 8;
                 if frame {
                     shade(wood, 0.7 + rng.f() * 0.06)
                 } else if window {
@@ -709,7 +940,14 @@ pub fn paint(t: u16) -> [Rgba; 256] {
                 } else if !top && x == 12 && (1..=3).contains(&y) {
                     rgb(70, 64, 60)
                 } else {
-                    shade(wood, if x % 4 == 0 { 0.8 } else { 0.94 + rng.f() * 0.1 })
+                    shade(
+                        wood,
+                        if x % 4 == 0 {
+                            0.8
+                        } else {
+                            0.94 + rng.f() * 0.1
+                        },
+                    )
                 }
             })
         }
@@ -730,6 +968,379 @@ pub fn paint(t: u16) -> [Rgba; 256] {
                 shade(wood, 0.94 + rng.f() * 0.1)
             }
         }),
+        tile::CRAFTING_TABLE_TOP => std::array::from_fn(|i| {
+            // Planks with a 3 × 3 grid scored into them.
+            let (x, y) = (i % SIZE, i / SIZE);
+            let base = shade(rgb(162, 130, 78), 0.95 + rng.f() * 0.1);
+            let rim = x == 0 || y == 0 || x == 15 || y == 15;
+            let grid = (3..=12).contains(&x) && (3..=12).contains(&y) && (x % 3 == 0 || y % 3 == 0);
+            if rim {
+                shade(rgb(110, 80, 44), 1.0 + rng.f() * 0.1)
+            } else if grid {
+                rgb(88, 64, 36)
+            } else {
+                base
+            }
+        }),
+        tile::CRAFTING_TABLE_SIDE => std::array::from_fn(|i| {
+            // A dark apron above planks, a saw and a hammer hung on it.
+            let (x, y) = (i % SIZE, i / SIZE);
+            let planks = shade(
+                rgb(162, 130, 78),
+                if y % 4 == 3 {
+                    0.75
+                } else {
+                    0.95 + rng.f() * 0.1
+                },
+            );
+            if y <= 4 {
+                shade(rgb(110, 80, 44), 0.95 + rng.f() * 0.1)
+            } else if (3..=6).contains(&x) && (5..=11).contains(&y) {
+                if y == 5 || x == 3 {
+                    rgb(70, 70, 76)
+                } else {
+                    rgb(190, 190, 196)
+                } // a saw blade
+            } else if (9..=12).contains(&x) && (6..=7).contains(&y) {
+                rgb(120, 120, 126) // a hammer's head
+            } else if (10..=11).contains(&x) && (8..=12).contains(&y) {
+                rgb(104, 72, 38) // its handle
+            } else {
+                planks
+            }
+        }),
+        tile::FURNACE_TOP => {
+            let mut px = stone(rng);
+            for i in 0..256 {
+                let (x, y) = (i % SIZE, i / SIZE);
+                if (4..=11).contains(&x) && (4..=11).contains(&y) {
+                    px[i] = shade(rgb(50, 50, 54), 0.9 + rng.f() * 0.2); // the flue
+                } else if x == 0 || y == 0 || x == 15 || y == 15 {
+                    px[i] = shade(px[i], 0.8);
+                }
+            }
+            px
+        }
+        tile::FURNACE_FRONT => {
+            let mut px = stone(rng);
+            for i in 0..256 {
+                let (x, y) = (i % SIZE, i / SIZE);
+                if (3..=12).contains(&x) && (5..=10).contains(&y) {
+                    px[i] = rgb(28, 26, 30); // the mouth
+                } else if (4..=11).contains(&x) && (12..=14).contains(&y) {
+                    px[i] = if y == 13 {
+                        rgb(30, 30, 34)
+                    } else {
+                        rgb(70, 68, 72)
+                    }; // the grate
+                } else if x == 0 || y == 0 || x == 15 || y == 15 {
+                    px[i] = shade(px[i], 0.8);
+                }
+            }
+            px
+        }
+        t if (tile::TOMATO_0..=tile::PALTO_1).contains(&t) => paint_crop(t, rng),
+        t if t >= tile::ITEM_BASE => paint_item(t - tile::ITEM_BASE, rng),
         _ => [rgb(255, 0, 255); 256],
+    }
+}
+
+/// Fills the pixels `(x, y)` that `shape` says are in, with `color`.
+fn draw(px: &mut [Rgba; 256], color: Rgba, shape: impl Fn(i32, i32) -> bool) {
+    for y in 0..16 {
+        for x in 0..16 {
+            if shape(x, y) {
+                px[(y * 16 + x) as usize] = color;
+            }
+        }
+    }
+}
+
+/// A diagonal run from (x0, y0) going up and to the right, `n` pixels, 2 wide.
+fn diagonal(x: i32, y: i32, x0: i32, y0: i32, n: i32) -> bool {
+    (0..n).any(|i| x == x0 + i && (y == y0 - i || y == y0 - i + 1))
+}
+
+/// The picture of the item `i` (from `block::ITEM_BASE`): simple pixel art, to be replaced.
+fn paint_item(i: u16, rng: &mut Px) -> [Rgba; 256] {
+    let mut px = [CLEAR; 256];
+    let wood = rgb(120, 86, 46);
+    let mat = |m: usize| {
+        [
+            rgb(170, 136, 82),
+            rgb(130, 130, 134),
+            rgb(205, 118, 72),
+            rgb(222, 222, 228),
+        ][m]
+    };
+    match i {
+        0 => draw(&mut px, wood, |x, y| diagonal(x, y, 3, 13, 10)),
+        1 => {
+            let lump = |x: i32, y: i32| {
+                let (dx, dy) = ((x - 8) as f32, (y - 8) as f32);
+                dx * dx / 30.0 + dy * dy / 20.0 < 1.0 && !(x == 10 && y == 6)
+            };
+            draw(&mut px, rgb(36, 36, 42), lump);
+            draw(&mut px, rgb(66, 66, 74), |x, y| {
+                lump(x, y) && (x + y) % 5 == 0
+            });
+            draw(&mut px, rgb(96, 96, 104), |x, y| {
+                (x, y) == (6, 6) || (x, y) == (9, 9)
+            });
+        }
+        2 | 3 => {
+            let c = if i == 2 {
+                rgb(205, 118, 72)
+            } else {
+                rgb(222, 222, 228)
+            };
+            // A bar seen from a corner: a top face and a front face.
+            draw(&mut px, shade(c, 1.12), |x, y| {
+                (5..=8).contains(&y) && (x >= 8 - y + 1 && x <= 14 - (y - 5))
+            });
+            draw(&mut px, shade(c, 0.82), |x, y| {
+                (9..=11).contains(&y) && (x >= 3 && x <= 11)
+            });
+            draw(&mut px, shade(c, 0.95), |x, y| {
+                (9..=11).contains(&y) && (12..=13).contains(&x) && x - 12 <= 11 - y
+            });
+        }
+        4 => {
+            let body = |x: i32, y: i32| {
+                let (dx, dy) = ((x as f32 - 7.5) * 1.0, (y as f32 - 9.0) * 1.05);
+                dx * dx + dy * dy < 22.0 && !(y < 5 && (6..=8).contains(&x))
+            };
+            draw(&mut px, rgb(200, 36, 36), body);
+            draw(&mut px, rgb(150, 24, 28), |x, y| body(x, y) && x >= 11);
+            draw(&mut px, rgb(240, 120, 120), |x, y| {
+                (x, y) == (5, 8) || (x, y) == (5, 9)
+            });
+            draw(&mut px, wood, |x, y| x == 8 && (3..=5).contains(&y));
+            draw(&mut px, rgb(70, 150, 50), |x, y| {
+                (9..=11).contains(&x) && (y == 3 || y == 4) && x - 9 + y >= 6
+            });
+        }
+        5..=8 => {
+            let m = mat((i - 5) as usize);
+            draw(&mut px, wood, |x, y| diagonal(x, y, 2, 14, 11));
+            // The head: an arch over the end of the handle.
+            let head = [
+                (5, 6),
+                (6, 4),
+                (7, 3),
+                (8, 2),
+                (9, 2),
+                (10, 2),
+                (11, 2),
+                (12, 3),
+                (13, 4),
+                (13, 5),
+                (14, 6),
+                (4, 7),
+            ];
+            draw(&mut px, m, |x, y| {
+                head.iter()
+                    .any(|&(a, b)| (a, b) == (x, y) || (a, b + 1) == (x, y))
+            });
+            draw(&mut px, shade(m, 1.15), |x, y| {
+                head.iter().any(|&(a, b)| (a, b) == (x, y)) && y <= 3
+            });
+        }
+        13 => {
+            // A glossy green blob with a highlight.
+            let blob = |x: i32, y: i32| {
+                let (dx, dy) = (x as f32 - 7.5, (y as f32 - 8.5) * 1.1);
+                dx * dx + dy * dy < 25.0
+            };
+            draw(&mut px, rgb(96, 190, 70), blob);
+            draw(&mut px, rgb(60, 140, 50), |x, y| {
+                blob(x, y) && (x + y >= 17 || y >= 12)
+            });
+            draw(&mut px, rgb(190, 245, 150), |x, y| {
+                (x, y) == (5, 6) || (x, y) == (6, 5) || (x, y) == (5, 7)
+            });
+        }
+        15..=32 => {
+            paint_farm_item(i, &mut px);
+        }
+        14 => {
+            // A green core in a golden crown frame, with an iron heart.
+            draw(&mut px, rgb(230, 190, 60), |x, y| {
+                (3..=12).contains(&x) && (9..=12).contains(&y)
+            });
+            draw(&mut px, rgb(230, 190, 60), |x, y| {
+                matches!((x, y), (3, 6..=8) | (7 | 8, 5..=8) | (12, 6..=8))
+            });
+            draw(&mut px, rgb(96, 190, 70), |x, y| {
+                (5..=10).contains(&x) && (9..=11).contains(&y)
+            });
+            draw(&mut px, rgb(222, 222, 228), |x, y| {
+                (7..=8).contains(&x) && (10..=11).contains(&y)
+            });
+            draw(&mut px, rgb(150, 110, 30), |x, y| {
+                (3..=12).contains(&x) && y == 13
+            });
+        }
+        _ => {
+            let m = mat((i - 9) as usize);
+            draw(&mut px, m, |x, y| diagonal(x, y, 5, 10, 9));
+            draw(&mut px, shade(m, 1.18), |x, y| {
+                (x + y == 14 || x + y == 15) && x >= 6 && x <= 13 && y <= 9 && (x + y == 14)
+            });
+            draw(&mut px, shade(m, 0.8), |x, y| {
+                (x, y) == (13, 1) || (x, y) == (14, 1)
+            });
+            // A guard across, a grip and a pommel in wood.
+            draw(&mut px, rgb(96, 68, 36), |x, y| {
+                x - y == -5 && (3..=7).contains(&x)
+            });
+            draw(&mut px, wood, |x, y| diagonal(x, y, 2, 14, 3));
+        }
+    }
+    // A hair of noise so flat colors do not look dead.
+    for p in px.iter_mut().filter(|p| p[3] > 0) {
+        *p = shade(*p, 0.96 + rng.f() * 0.08);
+    }
+    px
+}
+
+fn paint_crop(t: u16, rng: &mut Px) -> [Rgba; 256] {
+    let mut px = [CLEAR; 256];
+    let (stem, fruit) = if (tile::TOMATO_0..=tile::TOMATO_3).contains(&t) {
+        (rgb(48, 145, 45), rgb(220, 45, 28))
+    } else if (tile::SUNFLOWER_0..=tile::SUNFLOWER_3).contains(&t) {
+        (rgb(50, 150, 42), rgb(245, 205, 35))
+    } else if (tile::WHEAT_0..=tile::WHEAT_3).contains(&t) {
+        (rgb(105, 155, 48), rgb(235, 205, 65))
+    } else {
+        (rgb(42, 145, 48), rgb(110, 190, 48))
+    };
+    let stage = if t >= tile::PALTO_0 {
+        3
+    } else if t >= tile::WHEAT_0 {
+        (t - tile::WHEAT_0) as i32
+    } else if t >= tile::SUNFLOWER_0 {
+        (t - tile::SUNFLOWER_0) as i32
+    } else {
+        (t - tile::TOMATO_0) as i32
+    };
+    draw(&mut px, stem, |x, y| {
+        x == 7 || x == 8 || (stage > 1 && x == 6 && y > 7)
+    });
+    if stage >= 2 {
+        draw(&mut px, fruit, |x, y| {
+            (x - 4).abs() + (y - 5).abs() < 4 || (x - 10).abs() + (y - 7).abs() < 4
+        });
+    }
+    for p in px.iter_mut().filter(|p| p[3] > 0) {
+        *p = shade(*p, 0.96 + rng.f() * 0.08);
+    }
+    px
+}
+
+fn paint_farm_item(i: u16, px: &mut [Rgba; 256]) {
+    // These are intentionally silhouettes rather than solid diamonds: the icon is also used by
+    // the hand sprite and by dropped items, so each food/seed is recognizable at a glance.
+    match i {
+        15 => {
+            // Rocket kit: a small yellow case with a red nose and blue latch.
+            draw(px, rgb(232, 190, 52), |x, y| (4..=11).contains(&x) && (5..=12).contains(&y));
+            draw(px, rgb(210, 48, 38), |x, y| x == 8 && y <= 4);
+            draw(px, rgb(70, 125, 190), |x, y| x == 10 && (7..=9).contains(&y));
+        }
+        16 => {
+            // Egg.
+            draw(px, rgb(245, 242, 215), |x, y| {
+                let dx = x as f32 - 7.5;
+                let dy = (y as f32 - 8.0) * 0.82;
+                dx * dx + dy * dy < 28.0 && y >= 2
+            });
+            draw(px, rgb(255, 255, 240), |x, y| x == 5 && (5..=7).contains(&y));
+        }
+        17 | 18 => {
+            // Raw/cooked chicken leg, with a bone at the lower end.
+            let meat = if i == 17 { rgb(218, 112, 73) } else { rgb(156, 78, 38) };
+            draw(px, meat, |x, y| {
+                (x - 8).pow(2) + (y - 7).pow(2) < 24 || (x - 7).pow(2) + (y - 10).pow(2) < 14
+            });
+            draw(px, rgb(235, 220, 182), |x, y| x == 6 && (11..=14).contains(&y));
+            draw(px, rgb(190, 175, 145), |x, y| x == 5 && y == 14 || x == 7 && y == 14);
+        }
+        19 => {
+            // Feather.
+            draw(px, rgb(242, 240, 224), |x, y| diagonal(x, y, 3, 13, 10));
+            draw(px, rgb(205, 210, 205), |x, y| diagonal(x, y, 5, 12, 7) || x == 8 && y == 8);
+        }
+        20..=22 => {
+            // Three seed varieties: tomato, sunflower, wheat.
+            let c = match i { 20 => rgb(205, 65, 45), 21 => rgb(245, 205, 35), _ => rgb(180, 145, 55) };
+            for (x, y) in [(5, 6), (9, 5), (7, 9), (11, 10), (4, 12), (9, 13)] {
+                draw(px, c, |px, py| (px, py) == (x, y) || (px, py) == (x + 1, y));
+            }
+        }
+        23 => {
+            // Avocado.
+            let body = |x: i32, y: i32| (x - 8).pow(2) + (y - 8).pow(2) < 35 && y > 2;
+            draw(px, rgb(93, 170, 58), body);
+            draw(px, rgb(190, 220, 92), |x, y| body(x, y) && x < 9 && y < 11);
+            draw(px, rgb(125, 77, 35), |x, y| (x - 9).pow(2) + (y - 10).pow(2) < 7);
+        }
+        24 => {
+            // Tomato, including its leafy crown.
+            draw(px, rgb(220, 45, 28), |x, y| (x - 8).pow(2) + (y - 9).pow(2) < 31);
+            draw(px, rgb(245, 105, 72), |x, y| x == 5 && (7..=9).contains(&y));
+            draw(px, rgb(48, 145, 45), |x, y| y <= 5 && (x == 7 || x == 8 || x == 9));
+        }
+        25 => {
+            // Sunflower head and stem.
+            draw(px, rgb(53, 145, 48), |x, y| x == 8 && (8..=15).contains(&y));
+            draw(px, rgb(245, 205, 35), |x, y| (x - 8).abs() <= 4 && (y - 5).abs() <= 4 && (x - 8).abs() + (y - 5).abs() <= 6);
+            draw(px, rgb(92, 58, 28), |x, y| (x - 8).pow(2) + (y - 5).pow(2) < 7);
+        }
+        26 => {
+            // Fallback oil bottle (the real 64px texture is loaded from assets/textures).
+            draw(px, rgb(235, 190, 55), |x, y| (5..=11).contains(&x) && (6..=13).contains(&y));
+            draw(px, rgb(150, 105, 32), |x, y| (7..=9).contains(&x) && (3..=5).contains(&y));
+            draw(px, rgb(255, 230, 120), |x, y| x == 6 && (7..=9).contains(&y));
+        }
+        27 => {
+            // Mayonnaise jar.
+            draw(px, rgb(245, 235, 178), |x, y| (4..=11).contains(&x) && (6..=13).contains(&y));
+            draw(px, rgb(90, 145, 190), |x, y| (4..=11).contains(&x) && y == 5);
+            draw(px, rgb(255, 255, 235), |x, y| x == 6 && (8..=10).contains(&y));
+        }
+        28 => {
+            // Fallback bread loaf (the real Blockbench texture overrides this).
+            draw(px, rgb(194, 126, 62), |x, y| (x - 8).pow(2) + (y - 9).pow(2) < 33);
+            draw(px, rgb(245, 190, 100), |x, y| (5..=10).contains(&x) && (6..=8).contains(&y));
+            draw(px, rgb(145, 82, 38), |x, y| x == 5 && y >= 9 || x == 10 && y >= 9);
+        }
+        29 => {
+            // Vienesa.
+            draw(px, rgb(183, 66, 40), |x, y| (3..=12).contains(&x) && (6..=10).contains(&y));
+            draw(px, rgb(235, 120, 65), |x, y| x == 5 && (7..=8).contains(&y));
+            draw(px, rgb(230, 205, 140), |x, _y| x == 3 || x == 12);
+        }
+        30 => {
+            // Completo: bun, sausage, tomato and green avocado topping.
+            draw(px, rgb(220, 165, 74), |x, y| (3..=12).contains(&x) && (9..=12).contains(&y));
+            draw(px, rgb(183, 66, 40), |x, y| (4..=11).contains(&x) && (7..=9).contains(&y));
+            draw(px, rgb(55, 145, 48), |x, y| (5..=10).contains(&x) && y == 6);
+            draw(px, rgb(220, 45, 28), |x, y| x == 7 && y == 5);
+        }
+        31 => {
+            // Avocado sapling.
+            draw(px, rgb(90, 125, 42), |x, y| x == 8 && (8..=15).contains(&y));
+            draw(px, rgb(80, 170, 55), |x, y| (x - 7).pow(2) + (y - 6).pow(2) < 20 || (x - 10).pow(2) + (y - 5).pow(2) < 13);
+        }
+        32 => {
+            // Fallback wheat bundle (the real Blockbench texture overrides this).
+            for x in [5, 7, 9, 11] {
+                draw(px, rgb(210, 175, 52), |px, y| px == x && (3..=14).contains(&y));
+                draw(px, rgb(238, 211, 83), |px, y| px == x + 1 && (2..=5).contains(&y));
+            }
+            draw(px, rgb(145, 95, 36), |x, y| (5..=11).contains(&x) && y == 12);
+        }
+        _ => {}
     }
 }

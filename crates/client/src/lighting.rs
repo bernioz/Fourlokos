@@ -7,9 +7,9 @@
 use bevy::asset::embedded_asset;
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
-use bevy::render::render_resource::{RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::render::render_resource::{RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::shader::ShaderRef;
 use orbit_core::block::tile;
 
@@ -76,7 +76,13 @@ impl VoxelMaterial {
         // Mostly white, tinted toward the star's color.
         let tint = Vec3::ONE.lerp(Vec3::from_array(star_color), 0.35);
         let atlas_size = Vec4::new(tile::COLUMNS as f32, tile::ROWS as f32, 0.0, 0.0);
-        let light = VoxelLight { sun: (tint * SUN_LUX).extend(0.0), day_ambient: DAY_AMBIENT.extend(0.0), night_ambient: NIGHT_AMBIENT.extend(0.0), atlas: atlas_size, ..default() };
+        let light = VoxelLight {
+            sun: (tint * SUN_LUX).extend(0.0),
+            day_ambient: DAY_AMBIENT.extend(0.0),
+            night_ambient: NIGHT_AMBIENT.extend(0.0),
+            atlas: atlas_size,
+            ..default()
+        };
         Self { light, atlas }
     }
 
@@ -142,7 +148,10 @@ pub struct LiquidMaterial {
 
 impl LiquidMaterial {
     pub fn new(of: &VoxelMaterial) -> Self {
-        Self { light: of.light, atlas: of.atlas.clone() }
+        Self {
+            light: of.light,
+            atlas: of.atlas.clone(),
+        }
     }
 
     /// Lit the same as `m`.
@@ -160,7 +169,12 @@ impl Material for LiquidMaterial {
         AlphaMode::Blend
     }
 
-    fn specialize(_: &MaterialPipeline, descriptor: &mut RenderPipelineDescriptor, _: &MeshVertexBufferLayoutRef, _: MaterialPipelineKey<Self>) -> Result<(), SpecializedMeshPipelineError> {
+    fn specialize(
+        _: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        _: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
         Ok(())
     }
@@ -195,7 +209,11 @@ pub struct ModelLook {
 
 impl Default for ModelLook {
     fn default() -> Self {
-        Self { color: Vec4::ONE, planet: Vec4::new(1.0, 0.0, 1.0, 1.0), tile: Vec4::ZERO }
+        Self {
+            color: Vec4::ONE,
+            planet: Vec4::new(1.0, 0.0, 1.0, 1.0),
+            tile: Vec4::ZERO,
+        }
     }
 }
 
@@ -204,7 +222,12 @@ impl ModelMaterial {
         let VoxelMaterial { light, .. } = VoxelMaterial::new(star_color, Handle::default());
         let mut look = ModelLook::default();
         look.planet.y = if see_through { 1.0 } else { 0.0 };
-        Self { light, look, texture, see_through }
+        Self {
+            light,
+            look,
+            texture,
+            see_through,
+        }
     }
 
     /// A tile of the block atlas (`texture` must be the atlas), once per block over the faces.
@@ -218,7 +241,14 @@ impl ModelMaterial {
 
     /// Follows its planet (render-space center and radius), the planet's star and what can
     /// eclipse it, as `VoxelMaterial::place` and `eclipses` do.
-    pub fn place(&mut self, center: Vec3, radius: f32, star: Vec3, star_radius: f32, bodies: &[(Vec3, f32)]) {
+    pub fn place(
+        &mut self,
+        center: Vec3,
+        radius: f32,
+        star: Vec3,
+        star_radius: f32,
+        bodies: &[(Vec3, f32)],
+    ) {
         self.light.center = center.extend(0.0);
         self.light.sun_dir = (star - center).normalize_or(Vec3::Y).extend(0.0);
         self.look.planet.x = radius;
@@ -235,7 +265,11 @@ impl Material for ModelMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        if self.see_through { AlphaMode::Blend } else { AlphaMode::Opaque }
+        if self.see_through {
+            AlphaMode::Blend
+        } else {
+            AlphaMode::Opaque
+        }
     }
 
     fn enable_prepass() -> bool {
@@ -246,7 +280,12 @@ impl Material for ModelMaterial {
         false
     }
 
-    fn specialize(_: &MaterialPipeline, descriptor: &mut RenderPipelineDescriptor, _: &MeshVertexBufferLayoutRef, _: MaterialPipelineKey<Self>) -> Result<(), SpecializedMeshPipelineError> {
+    fn specialize(
+        _: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        _: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
         Ok(())
     }

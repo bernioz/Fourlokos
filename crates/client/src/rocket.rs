@@ -22,18 +22,18 @@ use crate::chat::{ActionBar, Chat, Keyboard};
 use crate::map::GalaxyMap;
 use crate::player::Player;
 use crate::station::{StationMenu, Stations};
-use crate::travel::{relative, Pilot, Travel};
-use crate::world::{remesh, Clock, Origin, Space};
+use crate::travel::{Pilot, Travel, relative};
+use crate::world::{Clock, Origin, Space, remesh};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use orbit_core::block;
 use orbit_core::planet::ChunkKey;
-use orbit_core::player::{collides, Body, Located, StationAt};
+use orbit_core::player::{Body, Located, StationAt, collides};
 use orbit_core::rng::mix;
 use orbit_core::rocket::{self, Lay};
 use orbit_core::sphere::CellId;
 use orbit_core::station::{Flight, Glide, Station, StationOrbit};
-use orbit_core::travel::{in_orbit, PILOT_ACCEL};
+use orbit_core::travel::{PILOT_ACCEL, in_orbit};
 
 pub struct RocketsPlugin;
 
@@ -41,9 +41,23 @@ impl Plugin for RocketsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Rockets>()
             .add_systems(Startup, setup_flames)
-            .add_systems(Update, (rocket_keys, run_requests).chain().after(crate::world::MovePlanets).before(crate::player::move_player))
-            .add_systems(Update, follow_rocket.after(crate::player::move_player).before(crate::player::sync_camera))
-            .add_systems(Update, (draw_flames, draw_marks).after(crate::player::sync_camera));
+            .add_systems(
+                Update,
+                (rocket_keys, run_requests)
+                    .chain()
+                    .after(crate::world::MovePlanets)
+                    .before(crate::player::move_player),
+            )
+            .add_systems(
+                Update,
+                follow_rocket
+                    .after(crate::player::move_player)
+                    .before(crate::player::sync_camera),
+            )
+            .add_systems(
+                Update,
+                (draw_flames, draw_marks).after(crate::player::sync_camera),
+            );
     }
 }
 
@@ -56,6 +70,8 @@ pub enum Request {
     Release,
     /// Put the starter rocket up in front of you.
     Build(Option<String>),
+    /// Build the starter rocket from a Rocket Kit; the caller consumes it only on success.
+    BuildKit(orbit_core::inventory::Hand),
     /// Gather the rocket whose helm is at this block of a station (standing on its pad), and fly it.
     AssembleOnStation { station: String, cell: IVec3 },
 }
@@ -84,7 +100,17 @@ pub struct Rockets {
 
 impl Default for Rockets {
     fn default() -> Self {
-        Self { requests: Vec::new(), piloting: None, cockpit: false, zoom: 1.0, reach: 0.0, marks: None, flames: Vec::new(), names: Default::default(), station_names: Default::default() }
+        Self {
+            requests: Vec::new(),
+            piloting: None,
+            cockpit: false,
+            zoom: 1.0,
+            reach: 0.0,
+            marks: None,
+            flames: Vec::new(),
+            names: Default::default(),
+            station_names: Default::default(),
+        }
     }
 }
 
@@ -126,9 +152,26 @@ pub struct Piloting {
 
 impl Piloting {
     fn new(s: &Station, person: Body, planet: u64) -> Self {
-        let nozzles = s.cells().filter(|&(p, b)| b == block::ENGINE && !s.solid(p - IVec3::Y)).map(|(p, _)| p.as_vec3() + Vec3::new(0.5, 0.0, 0.5)).collect();
-        let (lo, hi) = (s.bounds.min.as_vec3(), (s.bounds.max + IVec3::ONE).as_vec3());
-        Self { id: s.id.clone(), name: s.name.clone(), person, planet, throttle: 0.0, nozzles, middle: (lo + hi) * 0.5, size: (hi - lo).max_element() * 0.5, aim: None }
+        let nozzles = s
+            .cells()
+            .filter(|&(p, b)| b == block::ENGINE && !s.solid(p - IVec3::Y))
+            .map(|(p, _)| p.as_vec3() + Vec3::new(0.5, 0.0, 0.5))
+            .collect();
+        let (lo, hi) = (
+            s.bounds.min.as_vec3(),
+            (s.bounds.max + IVec3::ONE).as_vec3(),
+        );
+        Self {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            person,
+            planet,
+            throttle: 0.0,
+            nozzles,
+            middle: (lo + hi) * 0.5,
+            size: (hi - lo).max_element() * 0.5,
+            aim: None,
+        }
     }
 }
 
@@ -142,12 +185,18 @@ fn seat(s: &Station) -> (Vec3, Vec3) {
             return (at.as_vec3() + Vec3::new(0.5, 0.0, 0.5), -d.as_vec3());
         }
     }
-    ((s.core + IVec3::Y).as_vec3() + Vec3::new(0.5, 0.0, 0.5), Vec3::Z)
+    (
+        (s.core + IVec3::Y).as_vec3() + Vec3::new(0.5, 0.0, 0.5),
+        Vec3::Z,
+    )
 }
 
 /// A rocket id no station or rocket has.
 fn new_id(stations: &Stations, t: f64) -> String {
-    (0u64..).map(|n| Station::new_id(mix(t.to_bits() ^ n.wrapping_mul(0x9E37) ^ 0x50C7))).find(|id| stations.find(id).is_none()).unwrap()
+    (0u64..)
+        .map(|n| Station::new_id(mix(t.to_bits() ^ n.wrapping_mul(0x9E37) ^ 0x50C7)))
+        .find(|id| stations.find(id).is_none())
+        .unwrap()
 }
 
 fn rocket_keys(
@@ -171,7 +220,11 @@ fn rocket_keys(
     }
     if keys.just_pressed(KeyCode::KeyV) {
         rockets.cockpit = !rockets.cockpit;
-        bar.show(if rockets.cockpit { "Cockpit view" } else { "Chase view" });
+        bar.show(if rockets.cockpit {
+            "Cockpit view"
+        } else {
+            "Chase view"
+        });
     }
 }
 
@@ -193,7 +246,16 @@ fn run_requests(
     }
     // One that came down on a station's pad becomes blocks of the station.
     if let Some((station, berth)) = travel.docked.take() {
-        let said = onto_station(&mut commands, &mut rockets, &mut player, &mut stations, &space, &station, berth, clock.0);
+        let said = onto_station(
+            &mut commands,
+            &mut rockets,
+            &mut player,
+            &mut stations,
+            &space,
+            &station,
+            berth,
+            clock.0,
+        );
         match said {
             Ok(m) => {
                 travel.message = m.clone();
@@ -208,11 +270,41 @@ fn run_requests(
     let t = clock.0;
     for req in std::mem::take(&mut rockets.requests) {
         let said = match req {
-            Request::Assemble { planet, cell } => assemble(&mut rockets, &mut player, &mut stations, &mut space, planet, cell, t),
-            Request::AssembleOnStation { station, cell } => assemble_on_station(&mut rockets, &mut player, &mut stations, &space, &station, cell, t),
+            Request::Assemble { planet, cell } => assemble(
+                &mut rockets,
+                &mut player,
+                &mut stations,
+                &mut space,
+                planet,
+                cell,
+                t,
+            ),
+            Request::AssembleOnStation { station, cell } => assemble_on_station(
+                &mut rockets,
+                &mut player,
+                &mut stations,
+                &space,
+                &station,
+                cell,
+                t,
+            ),
             Request::Take(id) => take(&mut rockets, &mut player, &mut stations, &space, &id, t),
-            Request::Release => release(&mut commands, &mut rockets, &mut player, &mut stations, &mut space, t),
-            Request::Build(name) => match build(&mut rockets, &player, &stations, &mut space, name.as_deref(), t) {
+            Request::Release => release(
+                &mut commands,
+                &mut rockets,
+                &mut player,
+                &mut stations,
+                &mut space,
+                t,
+            ),
+            Request::Build(name) => match build(
+                &mut rockets,
+                &player,
+                &stations,
+                &mut space,
+                name.as_deref(),
+                t,
+            ) {
                 Ok(m) => {
                     chat.info(&m);
                     Ok(m)
@@ -222,6 +314,19 @@ fn run_requests(
                     Err(e)
                 }
             },
+            Request::BuildKit(hand) => {
+                match build(&mut rockets, &player, &stations, &mut space, None, t) {
+                    Ok(m) => {
+                        player.inv.use_hand(hand);
+                        chat.info(&m);
+                        Ok(m)
+                    }
+                    Err(e) => {
+                        chat.error(&e);
+                        Err(e)
+                    }
+                }
+            }
         };
         match said {
             Ok(m) => {
@@ -237,7 +342,10 @@ fn run_requests(
 }
 
 /// Puts blocks into a planet; returns the chunks to mesh again.
-fn put_blocks(planet: &mut orbit_core::planet::Planet, cells: impl IntoIterator<Item = (CellId, block::Block)>) -> Vec<ChunkKey> {
+fn put_blocks(
+    planet: &mut orbit_core::planet::Planet,
+    cells: impl IntoIterator<Item = (CellId, block::Block)>,
+) -> Vec<ChunkKey> {
     let mut dirty = Vec::new();
     for (c, b) in cells {
         for k in planet.set(c, b) {
@@ -249,27 +357,43 @@ fn put_blocks(planet: &mut orbit_core::planet::Planet, cells: impl IntoIterator<
     dirty
 }
 
-fn assemble(rockets: &mut Rockets, player: &mut Player, stations: &mut Stations, space: &mut Space, planet: u64, cell: CellId, t: f64) -> Result<String, String> {
+fn assemble(
+    rockets: &mut Rockets,
+    player: &mut Player,
+    stations: &mut Stations,
+    space: &mut Space,
+    planet: u64,
+    cell: CellId,
+    t: f64,
+) -> Result<String, String> {
     if rockets.is_piloting() {
-        return Err("You are already at a helm".into());
+        return Err("Ya estás frente a un timón".into());
     }
     if player.body.gravity_source != Some(planet) {
-        return Err("Stand by the rocket to take its helm".into());
+        return Err("Acércate al cohete para tomar su timón".into());
     }
     let id = new_id(stations, t);
     let slot = space.planets.get_mut(&planet).ok_or("Lost the planet")?;
-    let voxels = slot.voxel.clone().ok_or("The ground is not ready yet")?;
+    let voxels = slot.voxel.clone().ok_or("El terreno todavía no está listo")?;
     let spec = slot.spec.clone();
     let ground = voxels.read().unwrap();
     if ground.get(cell) != block::HELM {
-        return Err("That is not a helm".into());
+        return Err("Eso no es un timón".into());
     }
-    let name = rockets.names.get(&(planet, cell)).cloned().unwrap_or_default();
+    let name = rockets
+        .names
+        .get(&(planet, cell))
+        .cloned()
+        .unwrap_or_default();
     let a = match rocket::assemble(&ground, cell, player.body.forward, id, &name) {
         Ok(a) => a,
         Err(f) => {
             // Show where: the blocks in the way, or the holes in the pad, outlined for a while.
-            rockets.marks = (!f.cells.is_empty()).then(|| Marks { planet, cells: f.cells.clone(), left: MARK_SECS });
+            rockets.marks = (!f.cells.is_empty()).then(|| Marks {
+                planet,
+                cells: f.cells.clone(),
+                left: MARK_SECS,
+            });
             return Err(f.message());
         }
     };
@@ -278,54 +402,96 @@ fn assemble(rockets: &mut Rockets, player: &mut Player, stations: &mut Stations,
     let turn_local = Quat::from_mat3(&a.lay.turn(&ground)).normalize();
     let base_local = a.lay.base(&ground);
     let rotation = (spec.rotation * turn_local).normalize();
-    let center = rocket::origin_from_base(spec.center + (spec.rotation * base_local).as_dvec3(), rotation);
+    let center = rocket::origin_from_base(
+        spec.center + (spec.rotation * base_local).as_dvec3(),
+        rotation,
+    );
     let mut r = a.rocket;
-    r.flight = Some(Flight { center, rotation, planet });
+    r.flight = Some(Flight {
+        center,
+        rotation,
+        planet,
+    });
     // The rocket flies as a player would: a body standing on the pad where its base is.
-    let here = Located { planet: &ground, center: spec.center, rotation: spec.rotation };
-    let mut vehicle = Body::on_planet(&here, base_local, base_local.normalize(), turn_local * Vec3::Z);
+    let here = Located {
+        planet: &ground,
+        center: spec.center,
+        rotation: spec.rotation,
+    };
+    let mut vehicle = Body::on_planet(
+        &here,
+        base_local,
+        base_local.normalize(),
+        turn_local * Vec3::Z,
+    );
     vehicle.jetpack = true;
     vehicle.on_ground = true;
-    let at = StationAt { station: &r, center, rotation, planet, planet_center: spec.center, spin: Vec3::ZERO };
+    let at = StationAt {
+        station: &r,
+        center,
+        rotation,
+        planet,
+        planet_center: spec.center,
+        spin: Vec3::ZERO,
+    };
     let (feet, face) = seat(&r);
     let mut person = player.body.clone();
     person.board(&at, feet, face);
     let (n, engines) = rocket::summary(&r);
     let piloting = Piloting::new(&r, person, planet);
     drop(ground);
-    let dirty = put_blocks(&mut voxels.write().unwrap(), a.cells.iter().map(|&c| (c, block::AIR)));
+    let dirty = put_blocks(
+        &mut voxels.write().unwrap(),
+        a.cells.iter().map(|&c| (c, block::AIR)),
+    );
     slot.edited = true;
     remesh(slot, &dirty);
     let name = r.name.clone();
     stations.push(r);
     player.body = vehicle;
     rockets.piloting = Some(piloting);
-    Ok(format!("{name} is ready: {n} blocks, {engines} engine{}. K launch to orbit, L land, M map, R leave the helm, V camera", if engines == 1 { "" } else { "s" }))
+    Ok(format!(
+        "{name} está listo: {n} bloques, {engines} motor{}. K despega, L aterriza, M abre el mapa, R deja el timón, V cambia la cámara",
+        if engines == 1 { "" } else { "s" }
+    ))
 }
 
 /// Puts together the rocket whose helm is at `cell` on station `station` and takes its helm: it
 /// floats off the station's pad, going round with it, until you fly it away.
 #[allow(clippy::too_many_arguments)]
-fn assemble_on_station(rockets: &mut Rockets, player: &mut Player, stations: &mut Stations, space: &Space, station: &str, cell: IVec3, t: f64) -> Result<String, String> {
+fn assemble_on_station(
+    rockets: &mut Rockets,
+    player: &mut Player,
+    stations: &mut Stations,
+    space: &Space,
+    station: &str,
+    cell: IVec3,
+    t: f64,
+) -> Result<String, String> {
     if rockets.is_piloting() {
-        return Err("You are already at a helm".into());
+        return Err("Ya estás frente a un timón".into());
     }
     if player.body.station.as_deref() != Some(station) {
-        return Err("Stand by the rocket to take its helm".into());
+        return Err("Acércate al cohete para tomar su timón".into());
     }
     let id = new_id(stations, t);
-    let i = stations.find(station).ok_or("Lost the station")?;
+    let i = stations.find(station).ok_or("Se perdió la estación")?;
     let slot = &stations.list[i];
     let mut st = slot.station.write().unwrap();
     if st.get(cell) != block::HELM {
-        return Err("That is not a helm".into());
+        return Err("Eso no es un timón".into());
     }
-    let f = Stations::frame(&st, space, t).ok_or("The station is not in orbit here")?;
-    let well = space.wells().into_iter().find(|w| w.id == f.planet).ok_or("Lost the planet")?;
+    let f = Stations::frame(&st, space, t).ok_or("La estación no está en órbita aquí")?;
+    let well = space
+        .wells()
+        .into_iter()
+        .find(|w| w.id == f.planet)
+        .ok_or("Lost the planet")?;
     let key = (station.to_string(), cell);
     let name = rockets.station_names.get(&key).cloned().unwrap_or_default();
     // The body is in the station's frame: its forward is in station coordinates.
-    let a = rocket::assemble_on_station(&st, cell, player.body.forward, id, &name).map_err(|p| p.message().to_string())?;
+    let a = rocket::assemble_on_station(&st, cell, player.body.forward, id, &name)
+        .map_err(|p| p.message().to_string())?;
     for &c in &a.cells {
         st.set(c, block::AIR);
     }
@@ -333,13 +499,30 @@ fn assemble_on_station(rockets: &mut Rockets, player: &mut Player, stations: &mu
     let rotation = (f.rotation * a.berth.rotation()).normalize();
     let center = f.center + (f.rotation * a.berth.point(Vec3::ZERO)).as_dvec3();
     let mut r = a.rocket;
-    r.flight = Some(Flight { center, rotation, planet: f.planet });
+    r.flight = Some(Flight {
+        center,
+        rotation,
+        planet: f.planet,
+    });
     // It goes round with the station: that is how fast it is moving when you take over.
     let base = f.center + (f.rotation * a.berth.point(Vec3::new(0.5, 0.0, 0.5))).as_dvec3();
     let vel = f.spin.cross((base - f.planet_center).as_vec3());
-    let mut vehicle = Body::in_orbit_of(&well, (base - well.center).as_vec3(), vel, f.rotation * Vec3::Y, rotation * Vec3::Z);
+    let mut vehicle = Body::in_orbit_of(
+        &well,
+        (base - well.center).as_vec3(),
+        vel,
+        f.rotation * Vec3::Y,
+        rotation * Vec3::Z,
+    );
     vehicle.jetpack = true;
-    let at = StationAt { station: &r, center, rotation, planet: f.planet, planet_center: f.planet_center, spin: Vec3::ZERO };
+    let at = StationAt {
+        station: &r,
+        center,
+        rotation,
+        planet: f.planet,
+        planet_center: f.planet_center,
+        spin: Vec3::ZERO,
+    };
     let (feet, face) = seat(&r);
     let mut person = player.body.clone();
     person.board(&at, feet, face);
@@ -352,27 +535,45 @@ fn assemble_on_station(rockets: &mut Rockets, player: &mut Player, stations: &mu
     stations.push(r);
     player.body = vehicle;
     rockets.piloting = Some(piloting);
-    Ok(format!("{name} is off {sname}'s pad: {n} blocks, {engines} engine{}. Space to rise away, L to come back down on a pad, M map, R park", if engines == 1 { "" } else { "s" }))
+    Ok(format!(
+        "{name} salió de la plataforma de {sname}: {n} bloques, {engines} motor{}. Espacio para subir, L para volver a una plataforma, M mapa, R estacionar",
+        if engines == 1 { "" } else { "s" }
+    ))
 }
 
 /// The rocket being flown, come down on station `station`'s pad at `berth`: it becomes blocks of
 /// the station, and you stand where you were in it.
 #[allow(clippy::too_many_arguments)]
-fn onto_station(commands: &mut Commands, rockets: &mut Rockets, player: &mut Player, stations: &mut Stations, space: &Space, station: &str, berth: rocket::Berth, t: f64) -> Result<String, String> {
-    let Some(pil) = rockets.piloting.as_ref() else { return Err("You are not flying a rocket".into()) };
-    let ri = stations.find(&pil.id).ok_or("The rocket is gone")?;
-    let si = stations.find(station).ok_or("Lost the station")?;
+fn onto_station(
+    commands: &mut Commands,
+    rockets: &mut Rockets,
+    player: &mut Player,
+    stations: &mut Stations,
+    space: &Space,
+    station: &str,
+    berth: rocket::Berth,
+    t: f64,
+) -> Result<String, String> {
+    let Some(pil) = rockets.piloting.as_ref() else {
+        return Err("No estás pilotando un cohete".into());
+    };
+    let ri = stations.find(&pil.id).ok_or("El cohete ya no existe")?;
+    let si = stations.find(station).ok_or("Se perdió la estación")?;
     let (cells, helm, name) = {
         let r = stations.list[ri].station.read().unwrap();
         let st = stations.list[si].station.read().unwrap();
-        (rocket::berth_cells(&st, &r, &berth).map_err(|p| p.message().to_string())?, berth.cell(r.core), r.name.clone())
+        (
+            rocket::berth_cells(&st, &r, &berth).map_err(|p| p.message().to_string())?,
+            berth.cell(r.core),
+            r.name.clone(),
+        )
     };
     let sname = {
         let mut st = stations.list[si].station.write().unwrap();
         for (p, b) in cells {
             st.set(p, b);
         }
-        let f = Stations::frame(&st, space, t).ok_or("The station is not in orbit here")?;
+        let f = Stations::frame(&st, space, t).ok_or("La estación no está en órbita aquí")?;
         // You stay where you stood in it, now on the station.
         let feet = berth.point(pil.person.pos);
         let face = berth.rotation() * pil.person.forward;
@@ -386,68 +587,118 @@ fn onto_station(commands: &mut Commands, rockets: &mut Rockets, player: &mut Pla
     if let Some(e) = stations.remove(ri) {
         commands.entity(e).despawn();
     }
-    rockets.station_names.insert((station.to_string(), helm), name.clone());
+    rockets
+        .station_names
+        .insert((station.to_string(), helm), name.clone());
     rockets.piloting = None;
-    Ok(format!("{name} has landed on {sname}: it stands on the pad as blocks. Right click its Helm to fly again"))
+    Ok(format!(
+        "{name} aterrizó en {sname}: quedó como bloques sobre la plataforma. Haz clic derecho en su timón para volver a volar"
+    ))
 }
 
-fn take(rockets: &mut Rockets, player: &mut Player, stations: &mut Stations, space: &Space, id: &str, t: f64) -> Result<String, String> {
+fn take(
+    rockets: &mut Rockets,
+    player: &mut Player,
+    stations: &mut Stations,
+    space: &Space,
+    id: &str,
+    t: f64,
+) -> Result<String, String> {
     if rockets.is_piloting() {
-        return Err("You are already at a helm".into());
+        return Err("Ya estás frente a un timón".into());
     }
-    let i = stations.find(id).ok_or("No such rocket")?;
+    let i = stations.find(id).ok_or("No existe ese cohete")?;
     let slot = &stations.list[i];
     let mut s = slot.station.write().unwrap();
-    let f = Stations::frame(&s, space, t).ok_or("The rocket is not in orbit here")?;
-    let well = space.wells().into_iter().find(|w| w.id == f.planet).ok_or("Lost the planet")?;
+    let f = Stations::frame(&s, space, t).ok_or("El cohete no está en órbita aquí")?;
+    let well = space
+        .wells()
+        .into_iter()
+        .find(|w| w.id == f.planet)
+        .ok_or("Lost the planet")?;
     let base = f.center + (f.rotation * Vec3::new(0.5, 0.0, 0.5)).as_dvec3();
     // It goes round with its orbit: that is how fast it is moving when you take over.
     let vel = f.spin.cross((base - f.planet_center).as_vec3());
-    let mut vehicle = Body::in_orbit_of(&well, (base - well.center).as_vec3(), vel, f.rotation * Vec3::Y, f.rotation * Vec3::Z);
+    let mut vehicle = Body::in_orbit_of(
+        &well,
+        (base - well.center).as_vec3(),
+        vel,
+        f.rotation * Vec3::Y,
+        f.rotation * Vec3::Z,
+    );
     vehicle.jetpack = true;
     let (feet, face) = seat(&s);
     let mut person = player.body.clone();
     person.board(&f.at(&s), feet, face);
     s.orbit = None;
     s.glide = None;
-    s.flight = Some(Flight { center: f.center, rotation: f.rotation, planet: f.planet });
+    s.flight = Some(Flight {
+        center: f.center,
+        rotation: f.rotation,
+        planet: f.planet,
+    });
     let name = s.name.clone();
     rockets.piloting = Some(Piloting::new(&s, person, f.planet));
     drop(s);
     stations.mark_dirty(i);
     player.body = vehicle;
-    Ok(format!("At the helm of {name}. M map to travel, L land, R park again, V camera"))
+    Ok(format!(
+        "Al timón de {name}. M mapa para viajar, L aterrizar, R estacionar, V cámara"
+    ))
 }
 
-fn release(commands: &mut Commands, rockets: &mut Rockets, player: &mut Player, stations: &mut Stations, space: &mut Space, t: f64) -> Result<String, String> {
-    let Some(pil) = rockets.piloting.as_ref() else { return Err("You are not flying a rocket".into()) };
+fn release(
+    commands: &mut Commands,
+    rockets: &mut Rockets,
+    player: &mut Player,
+    stations: &mut Stations,
+    space: &mut Space,
+    t: f64,
+) -> Result<String, String> {
+    let Some(pil) = rockets.piloting.as_ref() else {
+        return Err("No estás pilotando un cohete".into());
+    };
     let Some(i) = stations.find(&pil.id) else {
         player.body = pil.person.clone();
         rockets.piloting = None;
-        return Err("The rocket is gone".into());
+        return Err("El cohete ya no existe".into());
     };
     let v = &player.body;
     if let Some(pid) = v.gravity_source {
         if !v.on_ground {
-            return Err("Land first (L): a rocket comes apart only on the ground".into());
+            return Err("Aterriza primero (L): el cohete solo se desmonta en el suelo".into());
         }
         let slot = space.planets.get_mut(&pid).ok_or("Lost the planet")?;
-        let voxels = slot.voxel.clone().ok_or("The ground is not ready yet")?;
+        let voxels = slot.voxel.clone().ok_or("El terreno todavía no está listo")?;
         let spec = slot.spec.clone();
         let mut ground = voxels.write().unwrap();
         let up = v.pos.normalize_or(Vec3::Y);
         // It stands the way it faces (the camera may look elsewhere), planet-local.
-        let facing = stations.list[i].station.read().unwrap().flight.map_or(v.forward, |f| v.frame_rotation().inverse() * (f.rotation * Vec3::Z));
-        let lay = Lay::at(&ground, v.pos + up * 0.5, facing).ok_or("No ground there")?;
+        let facing = stations.list[i]
+            .station
+            .read()
+            .unwrap()
+            .flight
+            .map_or(v.forward, |f| {
+                v.frame_rotation().inverse() * (f.rotation * Vec3::Z)
+            });
+        let lay = Lay::at(&ground, v.pos + up * 0.5, facing).ok_or("No hay suelo allí")?;
         let (cells, helm) = {
             let s = stations.list[i].station.read().unwrap();
-            (rocket::landing(&ground, &s, &lay).map_err(|p| p.message().to_string())?, lay.cell(&ground, s.core))
+            (
+                rocket::landing(&ground, &s, &lay).map_err(|p| p.message().to_string())?,
+                lay.cell(&ground, s.core),
+            )
         };
         let dirty = put_blocks(&mut ground, cells);
         // You stay where you stood in it, now on the planet.
         let feet = lay.point(&ground, pil.person.pos);
         let face = lay.turn(&ground) * pil.person.forward;
-        let here = Located { planet: &ground, center: spec.center, rotation: spec.rotation };
+        let here = Located {
+            planet: &ground,
+            center: spec.center,
+            rotation: spec.rotation,
+        };
         let mut body = Body::on_planet(&here, feet, feet.normalize(), face);
         body.pitch = pil.person.pitch;
         drop(ground);
@@ -462,50 +713,84 @@ fn release(commands: &mut Commands, rockets: &mut Rockets, player: &mut Player, 
             rockets.names.insert((pid, c), name.clone());
         }
         rockets.piloting = None;
-        return Ok(format!("{name} has landed: it stands on the ground as blocks. Right click its Helm to fly again"));
+        return Ok(format!(
+            "{name} aterrizó: quedó como bloques sobre el suelo. Haz clic derecho en su timón para volver a volar"
+        ));
     }
     let Some(pid) = v.orbiting else {
-        return Err("Nowhere to leave it out here: get into orbit (K) or land (L) first".into());
+        return Err("No puedes dejarlo aquí: entra en órbita (K) o aterriza (L) primero".into());
     };
     let p = space.planets.get(&pid).ok_or("Lost the planet")?;
     let (pos, vel) = relative(v, p.spec.center);
     if !in_orbit(pos, vel, p.spec.pull()) {
-        return Err("Not in a stable orbit yet: K to circularize, or L to land".into());
+        return Err("Todavía no estás en una órbita estable: K para circularizar o L para aterrizar".into());
     }
-    let f = stations.list[i].station.read().unwrap().flight.ok_or("The rocket is not flying")?;
+    let f = stations.list[i]
+        .station
+        .read()
+        .unwrap()
+        .flight
+        .ok_or("El cohete no está volando")?;
     let rel = f.center - p.spec.center;
     let want = StationOrbit::through(pid, rel.as_vec3(), f.rotation, vel, p.spec.pull(), t);
     let radius = p.spec.radius;
-    let o = stations.park(i, &want, space).map_err(|r| r.message().to_string())?;
+    let o = stations
+        .park(i, &want, space)
+        .map_err(|r| r.message().to_string())?;
     {
         let mut s = stations.list[i].station.write().unwrap();
         s.flight = None;
         // Eases into its place, unless that is far along the lane (then it is just there).
-        s.glide = (o.offset(t).distance(rel) < 3000.0).then_some(Glide { from: rel, turn: f.rotation, t0: t });
+        s.glide = (o.offset(t).distance(rel) < 3000.0).then_some(Glide {
+            from: rel,
+            turn: f.rotation,
+            t0: t,
+        });
     }
     player.body = pil.person.clone();
     let name = pil.name.clone();
     rockets.piloting = None;
-    Ok(format!("{name} is parked in a free lane, {:.0} blocks up: walk about, right click the Helm to fly on", o.radius() - radius))
+    Ok(format!(
+        "{name} está estacionado en un carril libre, a {:.0} bloques de altura: camina y haz clic derecho en su timón para volar",
+        o.radius() - radius
+    ))
 }
 
 /// Puts the starter rocket on the nearest pad a few blocks in front of the player.
-fn build(rockets: &mut Rockets, player: &Player, stations: &Stations, space: &mut Space, name: Option<&str>, t: f64) -> Result<String, String> {
+fn build(
+    rockets: &mut Rockets,
+    player: &Player,
+    stations: &Stations,
+    space: &mut Space,
+    name: Option<&str>,
+    t: f64,
+) -> Result<String, String> {
     let b = &player.body;
-    let pid = b.gravity_source.ok_or("Stand on a planet to build a rocket")?;
-    let slot = space.planets.get_mut(&pid).ok_or("Lost the planet")?;
-    let voxels = slot.voxel.clone().ok_or("The ground is not ready yet")?;
+    let pid = b
+        .gravity_source
+        .ok_or("Debes estar en un planeta para construir un cohete")?;
+    let slot = space.planets.get_mut(&pid).ok_or("Se perdió el planeta")?;
+    let voxels = slot
+        .voxel
+        .clone()
+        .ok_or("El terreno todavía no está listo")?;
     let mut ground = voxels.write().unwrap();
     let up = b.pos.normalize_or(Vec3::Y);
-    let ahead = b.forward.reject_from(up).normalize_or(up.any_orthonormal_vector());
+    let ahead = b
+        .forward
+        .reject_from(up)
+        .normalize_or(up.any_orthonormal_vector());
     let kit = rocket::starter(new_id(stations, t), name.unwrap_or(""));
-    let lay = rocket::find_pad(&ground, &kit, b.pos + ahead * 9.0, ahead).ok_or("No flat 3x3 pad with open sky near here: try flatter, clearer ground")?;
+    let lay = rocket::find_pad(&ground, &kit, b.pos + ahead * 9.0, ahead).ok_or(
+        "No hay una plataforma plana de 3x3 con cielo despejado: prueba en un terreno más llano",
+    )?;
     let cells = rocket::landing(&ground, &kit, &lay).map_err(|p| p.message().to_string())?;
-    let undo: Vec<(CellId, block::Block)> = cells.iter().map(|&(c, _)| (c, ground.get(c))).collect();
+    let undo: Vec<(CellId, block::Block)> =
+        cells.iter().map(|&(c, _)| (c, ground.get(c))).collect();
     let dirty = put_blocks(&mut ground, cells);
     if collides(&ground, b.pos) {
         put_blocks(&mut ground, undo);
-        return Err("You are standing where the rocket would go: step back".into());
+        return Err("Estás donde iría el cohete: retrocede un poco".into());
     }
     if let Some(c) = lay.cell(&ground, kit.core) {
         rockets.names.insert((pid, c), kit.name.clone());
@@ -514,7 +799,10 @@ fn build(rockets: &mut Rockets, player: &Player, stations: &Stations, space: &mu
     slot.edited = true;
     remesh(slot, &dirty);
     let (n, _) = rocket::summary(&kit);
-    Ok(format!("Built {} ({n} blocks) on a pad ahead: go in by the steps at the back and right click its Helm", kit.name))
+    Ok(format!(
+        "Construido {} ({n} bloques) en la plataforma de adelante: entra por las escaleras y haz clic derecho en su timón",
+        kit.name
+    ))
 }
 
 /// Keeps the rocket where the body flying it is, and you at its helm, looking where it looks.
@@ -531,7 +819,9 @@ fn follow_rocket(
     fx: Res<crate::travel::WarpFx>,
     travel: Res<Travel>,
 ) {
-    let Some(pil) = rockets.piloting.as_mut() else { return };
+    let Some(pil) = rockets.piloting.as_mut() else {
+        return;
+    };
     let Some(slot) = stations.by_id(&pil.id) else {
         player.body = pil.person.clone();
         rockets.piloting = None;
@@ -547,7 +837,14 @@ fn follow_rocket(
     let (mut before, mut facing) = match pil.aim {
         Some((n, z, _, _)) => (n, z),
         // As it stands now (just assembled, or taken in orbit).
-        None => slot.station.read().unwrap().flight.map_or((up, v.world_dir(v.forward)), |f| (f.rotation * Vec3::Y, f.rotation * Vec3::Z)),
+        None => slot
+            .station
+            .read()
+            .unwrap()
+            .flight
+            .map_or((up, v.world_dir(v.forward)), |f| {
+                (f.rotation * Vec3::Y, f.rotation * Vec3::Z)
+            }),
     };
     // On a planet its frame turns with the ground: the rocket turns with it.
     if let Some((_, _, was, Some(p))) = pil.aim {
@@ -561,7 +858,13 @@ fn follow_rocket(
     } else if fx.phase.is_some() {
         v.world_dir(v.look_dir())
     } else {
-        rocket::nose_toward(up, v.world_dir(v.vel), v.gravity_source.is_some(), v.on_ground, before)
+        rocket::nose_toward(
+            up,
+            v.world_dir(v.vel),
+            v.gravity_source.is_some(),
+            v.on_ground,
+            before,
+        )
     };
     let k = 1.0 - (-2.5 * time.delta_secs()).exp();
     let step = Quat::IDENTITY.slerp(Quat::from_rotation_arc(before, want), k);
@@ -573,10 +876,24 @@ fn follow_rocket(
     let rotation = rocket::turn_from(nose, front);
     pil.aim = Some((nose, rotation * Vec3::Z, frame, v.gravity_source));
     let center = rocket::origin_about_middle(v.world_point(v.pos), up, pil.middle.y, rotation);
-    slot.station.write().unwrap().flight = Some(Flight { center, rotation, planet: pil.planet });
+    slot.station.write().unwrap().flight = Some(Flight {
+        center,
+        rotation,
+        planet: pil.planet,
+    });
     let s = slot.station.read().unwrap();
-    let planet_center = space.planets.get(&pil.planet).map_or(center, |p| p.spec.center);
-    let at = StationAt { station: &s, center, rotation, planet: pil.planet, planet_center, spin: Vec3::ZERO };
+    let planet_center = space
+        .planets
+        .get(&pil.planet)
+        .map_or(center, |p| p.spec.center);
+    let at = StationAt {
+        station: &s,
+        center,
+        rotation,
+        planet: pil.planet,
+        planet_center,
+        spin: Vec3::ZERO,
+    };
     pil.person.sync_frame(&[], &[], &[at]);
     let look = rotation.inverse() * v.world_dir(v.look_dir());
     pil.person.up = Vec3::Y;
@@ -586,7 +903,17 @@ fn follow_rocket(
     pil.person.pitch = look.y.clamp(-1.0, 1.0).asin();
 
     let typing = keyboard.owner.is_some();
-    let pushing = !typing && [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Space, KeyCode::ShiftLeft].iter().any(|k| keys.pressed(*k));
+    let pushing = !typing
+        && [
+            KeyCode::KeyW,
+            KeyCode::KeyA,
+            KeyCode::KeyS,
+            KeyCode::KeyD,
+            KeyCode::Space,
+            KeyCode::ShiftLeft,
+        ]
+        .iter()
+        .any(|k| keys.pressed(*k));
     let boost = keys.pressed(KeyCode::ControlLeft);
     let want = if pilot.frozen {
         0.0
@@ -609,8 +936,15 @@ struct FlameAssets {
     mat: Handle<StandardMaterial>,
 }
 
-fn setup_flames(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>) {
-    let mesh = meshes.add(Cone { radius: 0.42, height: 1.0 });
+fn setup_flames(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+) {
+    let mesh = meshes.add(Cone {
+        radius: 0.42,
+        height: 1.0,
+    });
     let mat = mats.add(StandardMaterial {
         base_color: Color::LinearRgba(LinearRgba::new(6.0, 2.4, 0.6, 1.0)),
         unlit: true,
@@ -637,36 +971,75 @@ fn draw_flames(
         commands.entity(e).despawn();
     }
     while rockets.flames.len() < want {
-        let e = commands.spawn((Mesh3d(assets.mesh.clone()), MeshMaterial3d(assets.mat.clone()), Transform::default(), Visibility::Hidden, NotShadowCaster)).id();
+        let e = commands
+            .spawn((
+                Mesh3d(assets.mesh.clone()),
+                MeshMaterial3d(assets.mat.clone()),
+                Transform::default(),
+                Visibility::Hidden,
+                NotShadowCaster,
+            ))
+            .id();
         rockets.flames.push(e);
     }
-    let Some(pil) = rockets.piloting.as_ref() else { return };
-    let Some(f) = stations.by_id(&pil.id).and_then(|s| s.station.read().unwrap().flight) else { return };
+    let Some(pil) = rockets.piloting.as_ref() else {
+        return;
+    };
+    let Some(f) = stations
+        .by_id(&pil.id)
+        .and_then(|s| s.station.read().unwrap().flight)
+    else {
+        return;
+    };
     let down = f.rotation * Vec3::NEG_Y;
     let now = time.elapsed_secs();
     for (n, (&e, &nozzle)) in rockets.flames.iter().zip(&pil.nozzles).enumerate() {
-        let Ok((mut tr, mut vis)) = q.get_mut(e) else { continue };
-        let flicker = 0.85 + 0.15 * (now * 37.0 + n as f32 * 1.7).sin() * (now * 23.0 + n as f32).cos();
+        let Ok((mut tr, mut vis)) = q.get_mut(e) else {
+            continue;
+        };
+        let flicker =
+            0.85 + 0.15 * (now * 37.0 + n as f32 * 1.7).sin() * (now * 23.0 + n as f32).cos();
         let len = (0.5 + 3.2 * pil.throttle) * flicker;
         let width = 0.75 + 0.35 * pil.throttle;
         let at = origin.render(f.center + (f.rotation * nozzle).as_dvec3());
         // The cone's tip is its +y: turned over, it points down out of the nozzle.
-        *tr = Transform { translation: at + down * (len * 0.5), rotation: f.rotation * Quat::from_rotation_x(std::f32::consts::PI), scale: Vec3::new(width, len, width) };
-        *vis = if pil.throttle > 0.04 { Visibility::Visible } else { Visibility::Hidden };
+        *tr = Transform {
+            translation: at + down * (len * 0.5),
+            rotation: f.rotation * Quat::from_rotation_x(std::f32::consts::PI),
+            scale: Vec3::new(width, len, width),
+        };
+        *vis = if pil.throttle > 0.04 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 
 /// Outlines the blocks to blame for a rocket that could not go up, in red, blinking, and draws a
 /// line up to them from the helm side so ones high up (a branch, an overhang) are found too.
-fn draw_marks(mut rockets: ResMut<Rockets>, space: Res<Space>, origin: Res<Origin>, time: Res<Time>, player: Single<&Player>, mut gizmos: Gizmos) {
-    let Some(m) = rockets.marks.as_mut() else { return };
+fn draw_marks(
+    mut rockets: ResMut<Rockets>,
+    space: Res<Space>,
+    origin: Res<Origin>,
+    time: Res<Time>,
+    player: Single<&Player>,
+    mut gizmos: Gizmos,
+) {
+    let Some(m) = rockets.marks.as_mut() else {
+        return;
+    };
     m.left -= time.delta_secs();
     if m.left <= 0.0 {
         rockets.marks = None;
         return;
     }
-    let Some(slot) = space.planets.get(&m.planet) else { return };
-    let Some(voxels) = slot.voxel.as_ref() else { return };
+    let Some(slot) = space.planets.get(&m.planet) else {
+        return;
+    };
+    let Some(voxels) = slot.voxel.as_ref() else {
+        return;
+    };
     let planet = voxels.read().unwrap();
     let g = &planet.grid;
     let spec = &slot.spec;
@@ -675,8 +1048,14 @@ fn draw_marks(mut rockets: ResMut<Rockets>, space: Res<Space>, origin: Res<Origi
     let color = Color::srgba(1.0, 0.15, 0.1, blink);
     for &cell in &m.cells {
         let mid = g.center(cell);
-        let c = |di, dj, dk| base + spec.rotation * (mid + (g.corner(cell, di, dj, dk) - mid) * 1.06);
-        for (a, b) in [((0, 0), (1, 0)), ((1, 0), (1, 1)), ((1, 1), (0, 1)), ((0, 1), (0, 0))] {
+        let c =
+            |di, dj, dk| base + spec.rotation * (mid + (g.corner(cell, di, dj, dk) - mid) * 1.06);
+        for (a, b) in [
+            ((0, 0), (1, 0)),
+            ((1, 0), (1, 1)),
+            ((1, 1), (0, 1)),
+            ((0, 1), (0, 0)),
+        ] {
             for k in 0..2 {
                 gizmos.line(c(a.0, a.1, k), c(b.0, b.1, k), color);
             }
@@ -688,6 +1067,10 @@ fn draw_marks(mut rockets: ResMut<Rockets>, space: Res<Space>, origin: Res<Origi
     if let Some(&first) = m.cells.first() {
         let eye = origin.render(b.world_point(b.eye()));
         let to = base + spec.rotation * g.center(first);
-        gizmos.line(eye + (to - eye).normalize_or_zero() * 1.5, to, Color::srgba(1.0, 0.3, 0.2, 0.6 * blink));
+        gizmos.line(
+            eye + (to - eye).normalize_or_zero() * 1.5,
+            to,
+            Color::srgba(1.0, 0.3, 0.2, 0.6 * blink),
+        );
     }
 }

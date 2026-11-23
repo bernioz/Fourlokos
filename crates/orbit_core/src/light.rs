@@ -106,7 +106,9 @@ impl Planet {
         }
         for col in 0..columns {
             for s in [Side::IMinus, Side::IPlus, Side::JMinus, Side::JPlus] {
-                let Some(nb) = self.grid.neighbor(col * layers, s) else { continue };
+                let Some(nb) = self.grid.neighbor(col * layers, s) else {
+                    continue;
+                };
                 let nb_col = nb / layers;
                 for k in floor[col]..floor[nb_col] {
                     if self.air(nb_col * layers + k) {
@@ -149,7 +151,12 @@ impl Planet {
 
     /// Takes out the light of `cells` and whatever it alone lit; returns the lit cells around the
     /// dark that must shine back in. Glowing blocks keep their own light.
-    fn darken(&mut self, ch: Channel, cells: &[CellId], touched: &mut Vec<CellId>) -> VecDeque<CellId> {
+    fn darken(
+        &mut self,
+        ch: Channel,
+        cells: &[CellId],
+        touched: &mut Vec<CellId>,
+    ) -> VecDeque<CellId> {
         let mut dark = VecDeque::new();
         let mut bright = VecDeque::new();
         for &x in cells {
@@ -162,7 +169,9 @@ impl Planet {
         }
         while let Some((x, old)) = dark.pop_front() {
             for s in Side::ALL {
-                let Some(nb) = self.grid.neighbor(x, s) else { continue };
+                let Some(nb) = self.grid.neighbor(x, s) else {
+                    continue;
+                };
                 let l = self.level(nb, ch);
                 if l == 0 {
                     continue;
@@ -178,7 +187,12 @@ impl Planet {
         }
         // Lit neighbors shine into what was opened (or re-fill what was darkened).
         for &x in cells {
-            bright.extend(Side::ALL.iter().filter_map(|&s| self.grid.neighbor(x, s)).filter(|&nb| self.level(nb, ch) > 0));
+            bright.extend(
+                Side::ALL
+                    .iter()
+                    .filter_map(|&s| self.grid.neighbor(x, s))
+                    .filter(|&nb| self.level(nb, ch) > 0),
+            );
         }
         if ch == Channel::Block {
             for &x in touched.iter() {
@@ -287,14 +301,31 @@ mod tests {
         let n = p.grid.n;
         let mut rng = Rng::new(5);
         for step in 0..400 {
-            let (f, i, j, k) = (rng.int(0, 5) as usize, rng.int(0, n as i64 - 1) as usize, rng.int(0, n as i64 - 1) as usize, rng.int(6, 14) as usize);
-            let b = if step % 3 == 0 { block::STONE } else { block::AIR };
+            let (f, i, j, k) = (
+                rng.int(0, 5) as usize,
+                rng.int(0, n as i64 - 1) as usize,
+                rng.int(0, n as i64 - 1) as usize,
+                rng.int(6, 14) as usize,
+            );
+            let b = if step % 3 == 0 {
+                block::STONE
+            } else {
+                block::AIR
+            };
             let c = p.grid.index(f, i, j, k);
             p.set(c, b);
         }
         let incremental = p.light.clone();
         p.compute_light();
-        assert!(incremental == p.light, "{} cells differ", incremental.iter().zip(&p.light).filter(|(a, b)| a != b).count());
+        assert!(
+            incremental == p.light,
+            "{} cells differ",
+            incremental
+                .iter()
+                .zip(&p.light)
+                .filter(|(a, b)| a != b)
+                .count()
+        );
     }
 
     #[test]
@@ -310,7 +341,12 @@ mod tests {
         let n = p.grid.n;
         let mut rng = Rng::new(3);
         for step in 0..500 {
-            let (f, i, j, k) = (rng.int(0, 5) as usize, rng.int(0, n as i64 - 1) as usize, rng.int(0, n as i64 - 1) as usize, rng.int(6, 14) as usize);
+            let (f, i, j, k) = (
+                rng.int(0, 5) as usize,
+                rng.int(0, n as i64 - 1) as usize,
+                rng.int(0, n as i64 - 1) as usize,
+                rng.int(6, 14) as usize,
+            );
             let b = match step % 4 {
                 0 => block::STONE,
                 1 => block::WATER,
@@ -321,7 +357,15 @@ mod tests {
         }
         let incremental = p.light.clone();
         p.compute_light();
-        assert!(incremental == p.light, "{} cells differ", incremental.iter().zip(&p.light).filter(|(a, b)| a != b).count());
+        assert!(
+            incremental == p.light,
+            "{} cells differ",
+            incremental
+                .iter()
+                .zip(&p.light)
+                .filter(|(a, b)| a != b)
+                .count()
+        );
     }
 
     #[test]
@@ -342,7 +386,12 @@ mod tests {
         let n = p.grid.n;
         let mut rng = Rng::new(8);
         for step in 0..500 {
-            let (f, i, j, k) = (rng.int(0, 5) as usize, rng.int(0, n as i64 - 1) as usize, rng.int(0, n as i64 - 1) as usize, rng.int(6, 14) as usize);
+            let (f, i, j, k) = (
+                rng.int(0, 5) as usize,
+                rng.int(0, n as i64 - 1) as usize,
+                rng.int(0, n as i64 - 1) as usize,
+                rng.int(6, 14) as usize,
+            );
             let b = match step % 5 {
                 0 => block::STONE,
                 1 => block::TORCH,
@@ -352,7 +401,15 @@ mod tests {
         }
         let incremental = p.light.clone();
         p.compute_light();
-        assert!(incremental == p.light, "{} cells differ", incremental.iter().zip(&p.light).filter(|(a, b)| a != b).count());
+        assert!(
+            incremental == p.light,
+            "{} cells differ",
+            incremental
+                .iter()
+                .zip(&p.light)
+                .filter(|(a, b)| a != b)
+                .count()
+        );
         // Taking the torch away darkens the tunnel again.
         let mut q = flat(12);
         for i in 2..14 {
@@ -363,4 +420,3 @@ mod tests {
         assert!((2..14).all(|i| q.block_light(g.index(0, i, 5, 9)) == 0));
     }
 }
-
